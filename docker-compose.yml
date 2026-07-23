@@ -1,0 +1,105 @@
+version: '3.8'
+
+services:
+  kong-gateway:
+    image: kong:3.4
+    container_name: cip-kong-gateway
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+    volumes:
+      - ./kong.yml:/usr/local/kong/kong.yml:ro
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+  event-bus:
+    image: rabbitmq:3.12-management
+    container_name: cip-event-bus
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+  database:
+    image: postgres:15-alpine
+    container_name: cip-postgres-db
+    environment:
+      POSTGRES_USER: cip_admin
+      POSTGRES_PASSWORD: cip_secure_password
+      POSTGRES_DB: cip_master_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+  admin-dashboard:
+    build:
+      context: ./apps/admin-dashboard
+      dockerfile: Dockerfile
+    container_name: cip-admin-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+  identity-service:
+    build:
+      context: ./services/identity
+      dockerfile: Dockerfile
+    container_name: cip-identity-service
+    environment:
+      - PORT=8081
+      - JWT_SECRET=super_secret_jwt_sign_key
+      - DEFAULT_TENANT_ID=00000000-0000-0000-0000-000000000000
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+  content-service:
+    build:
+      context: ./services/content
+      dockerfile: Dockerfile
+    container_name: cip-content-service
+    environment:
+      - PORT=8082
+      - DATABASE_URL=postgresql://cip_admin:cip_secure_password@database:5432/cip_master_db?schema=content
+      - DEFAULT_TENANT_ID=00000000-0000-0000-0000-000000000000
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+  roadmap-service:
+    build:
+      context: ./services/roadmap
+      dockerfile: Dockerfile
+    container_name: cip-roadmap-service
+    environment:
+      - PORT=8083
+      - DATABASE_URL=postgresql://cip_admin:cip_secure_password@database:5432/cip_master_db?schema=roadmap
+      - DEFAULT_TENANT_ID=00000000-0000-0000-0000-000000000000
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+networks:
+  cip-network:
+    driver: bridge
+
+volumes:
+  pg-data:
+    driver: local
