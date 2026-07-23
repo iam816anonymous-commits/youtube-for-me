@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package cip.roadmap.v1;
+
+option go_package = "cip/roadmap/v1;roadmapv1";
+
+service RoadmapService {
+    rpc GetRoadmap (GetRoadmapRequest) returns (GetRoadmapResponse);
+    rpc AddMilestone (AddMilestoneRequest) returns (AddMilestoneResponse);
+}
+
+message GetRoadmapRequest {
+    string id = 1;
+    string tenant_id = 2;
+}
+
+message GetRoadmapResponse {
+    string id = 1;
+    string title = 2;
+    repeated Milestone milestones = 3;
+}
+
+message AddMilestoneRequest {
+    string tenant_id = 1;
+    string roadmap_id = 2;
+    string title = 3;
+    string target_quarter = 4;
+}
+
+message AddMilestoneResponse {
+    Milestone milestone = 1;
+}
+
+message Milestone {
+    string id = 1;
+    string title = 2;
+    string status = 3;
+    string target_quarter = 4;
+}

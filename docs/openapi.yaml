@@ -1,0 +1,260 @@
+openapi: 3.1.0
+info:
+  title: Content Intelligence Platform (CIP) Unified API Gateway Specification
+  version: 1.0.0
+  description: Definitive API contracts for all core external microservice endpoints of the CIP.
+paths:
+  /api/v1/videos:
+    get:
+      summary: Query video entries
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ideation, research, scripting, recording, editing, scheduled, published]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: List of video assets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Video'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      summary: Create a new video concept
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+      responses:
+        '201':
+          description: Video record successfully created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Video'
+
+  /api/v1/roadmaps:
+    get:
+      summary: Retrieve all active roadmaps
+      responses:
+        '200':
+          description: List of roadmaps.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Roadmap'
+    post:
+      summary: Initiate a strategic roadmap track
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                target_date:
+                  type: string
+                  format: date
+      responses:
+        '201':
+          description: Roadmap successfully registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Roadmap'
+
+  /api/v1/planner/tasks:
+    get:
+      summary: Fetch Kanban cards
+      responses:
+        '200':
+          description: List of scheduled tasks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
+    post:
+      summary: Append a task card
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                due_date:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Task generated.
+
+  /api/v1/search:
+    get:
+      summary: Execute hybrid keyword and semantic vector searches
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: filter_type
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Unified ranked search results.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SearchResult'
+
+  /api/v1/intelligence/recommendations:
+    get:
+      summary: Extract active recommendations formulated by the Decision Engine pipeline
+      responses:
+        '200':
+          description: System recommendations list.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Recommendation'
+
+components:
+  responses:
+    Unauthorized:
+      description: Authentication required or JWT is expired.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+
+  schemas:
+    Video:
+      type: object
+      required: [id, tenant_id, title, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    Roadmap:
+      type: object
+      required: [id, tenant_id, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        target_date:
+          type: string
+          format: date
+
+    Task:
+      type: object
+      required: [id, tenant_id, title, column_state]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        column_state:
+          type: string
+        due_date:
+          type: string
+          format: date-time
+
+    SearchResult:
+      type: object
+      required: [id, title, score]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        score:
+          type: number
+        snippet:
+          type: string
+
+    Recommendation:
+      type: object
+      required: [id, tenant_id, category, confidence_score, recommendation_text]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        category:
+          type: string
+        confidence_score:
+          type: number
+        recommendation_text:
+          type: string
+        supporting_metrics:
+          type: object

@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package cip.analytics.v1;
+
+option go_package = "cip/analytics/v1;analyticsv1";
+
+service AnalyticsService {
+    rpc GetVideoPerformance (GetVideoPerformanceRequest) returns (GetVideoPerformanceResponse);
+    rpc RecordSnapshot (RecordSnapshotRequest) returns (RecordSnapshotResponse);
+}
+
+message GetVideoPerformanceRequest {
+    string video_id = 1;
+    string tenant_id = 2;
+}
+
+message GetVideoPerformanceResponse {
+    string video_id = 1;
+    int64 views = 2;
+    int32 likes = 3;
+    int32 comments = 4;
+    double retention_average = 5;
+}
+
+message RecordSnapshotRequest {
+    string tenant_id = 1;
+    string video_id = 2;
+    int64 views = 3;
+    int32 likes = 4;
+    int32 comments = 5;
+}
+
+message RecordSnapshotResponse {
+    bool success = 1;
+}
