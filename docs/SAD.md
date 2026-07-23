@@ -13,7 +13,7 @@ The Content Intelligence Platform (CIP) is designed as a modular, **Event-Driven
 * **API Gateway Pattern:** External client layers (Admin Dashboard and Public Portal) interface exclusively with a unified **API Gateway**, obscuring the underlying service network layout and providing a single entry point for routing, authentication, and rate limiting.
 * **CQRS (Command Query Responsibility Segregation) Readiness:** Database architectures segregate state-mutating actions (e.g., adding research items, modifying video status) from intensive read actions (e.g., pulling metrics dashboard matrices or querying semantic vectors) to optimize scale and performance.
 * **Multi-tenant Readiness:** Every persistence layer schema integrates `tenant_id` partitions, ensuring frictionless transformation to a multi-user SaaS structure without architectural redesign.
-* **Intelligence Reasoning Layer:** Rather than simple CRUD operations over database entries, a dedicated intelligence reasoning layer exists to consume events and aggregate metrics, answering strategic questions such as what content should be created next or which roadmap pillars are falling behind.
+* **Intelligence Reasoning Service:** Rather than embedding business logic inside simple AI endpoints, a dedicated **Intelligence Service** reasons over aggregated metrics, roadmap targets, and historical trends to guide content creators on what topic to produce next or which pillar requires immediate attention.
 
 ---
 
@@ -71,16 +71,15 @@ The Container Diagram expands the CIP System, illustrating the frontends, API Ga
                      │                               │
                      ▼                               ▼
        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━ Event Bus (RabbitMQ) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        │           │           │           │           │           │           │
-        ▼           ▼           ▼           ▼           ▼           ▼           ▼
-   [Content]    [Roadmap]   [Planner]  [Analytics] [Knowledge]     [AI]    [Search]
-    Service      Service     Service     Service     Service     Service    Service
-        │           │           │           │           │           │           │
-        ▼           ▼           ▼           ▼           ▼           ▼           ▼
-   ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
-   │Postgres │ │Postgres │ │Postgres │ │Postgres │ │Postgres │ │Postgres │ │Postgres │
-   │  (SQL)  │ │  (SQL)  │ │  (SQL)  │ │(Part'd) │ │+pgvector│ │ (Cache) │ │+pgvector│
-   └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘
+        │       │       │       │       │       │       │       │       │       │
+        ▼       ▼       ▼       ▼       ▼       ▼       ▼       ▼       ▼       ▼
+   [Content][Roadmap][Planner][Analytics][Knowl][Search][AI-Svc][Intel][Graph][Lake]
+        │       │       │       │       │       │       │       │       │       │
+        ▼       ▼       ▼       ▼       ▼       ▼       ▼       ▼       ▼       ▼
+   ┌───────┐┌───────┐┌───────┐┌───────┐┌───────┐┌───────┐┌───────┐┌───────┐┌───────┐┌───────┐
+   │Postgre││Postgre││Postgre││Postgre││Postgre││Postgre││Postgre││Postgre││Postgre││Postgre│
+   │ (SQL) ││ (SQL) ││ (SQL) ││(Part) ││+vctor ││+vctor ││(Cache)││ (SQL) ││(Graph)││ (Lake)│
+   └───────┘└───────┘└───────┘└───────┘└───────┘└───────┘└───────┘└───────┘└───────┘└───────┘
 ```
 
 ### 2.3 Level 3: Component Diagram (Content & Roadmap Services)
@@ -182,10 +181,10 @@ YT-Sync-Worker          Event Bus          Content Service          AI Service  
 ```
 
 ### 3.3 Intelligence & Recommendation Pipeline
-How the Intelligence Layer synthesizes analytical and knowledge markers to offer active visual recommendations.
+How the Intelligence Service synthesizes analytical and knowledge markers to offer active visual recommendations.
 
 ```text
-Browser                 Gateway              Intelligence Layer             Analytics             Roadmap
+Browser                 Gateway             Intelligence Service            Analytics             Roadmap
    │                       │                         │                          │                    │
    │── 1. Get Recommend ──►│                         │                          │                    │
    │                       │── 2. Run Assessment ───►│                          │                    │
@@ -230,7 +229,7 @@ To ensure absolute system cohesion and prevent future overengineering, the platf
 │   │ Analytics Service │ │ Knowledge Service │ │    AI Service     │ │  Search Service   │ │
 │   └───────────────────┘ └───────────────────┘ └───────────────────┘ └───────────────────┘ │
 │   ┌───────────────────┐ ┌───────────────────┐                                             │
-│   │ Recommendation Svc│ │ Knowledge Graph   │                                             │
+│   │Intelligence Service││Knowledge Graph Svc│                                             │
 │   └───────────────────┘ └───────────────────┘                                             │
 └─────────────────────────────────────────┬─────────────────────────────────────────────────┘
                                           ▼
@@ -245,27 +244,35 @@ To ensure absolute system cohesion and prevent future overengineering, the platf
 └───────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.1 Roadmap Service
-*   **Purpose:** Governs strategic user tracks, timelines, milestone tracking, and long-term release frameworks.
-*   **Reason for Separation:** Isolates pure metadata planning structures from physical video file processing or playlist mutations.
+### 4.1 Content Service
+*   **Purpose:** Governs standard video nodes, series lists, titles, and playlists structures.
+*   **Persistence:** PostgreSQL.
 
-### 4.2 Planner Service
-*   **Purpose:** Manages Kanban workflows, task items, task execution deadlines, creator calendars, and task dependency graphs.
-*   **Reason for Separation:** The planning aspect of creator workflows (e.g., scripting task assigned, thumbnail review task) is fundamentally distinct from public video metadata entities.
+### 4.2 Roadmap Service
+*   **Purpose:** Governs strategic user goals, target quarters, milestone track progression, and release schedules.
+*   **Persistence:** PostgreSQL.
 
-### 4.3 Knowledge Graph Service
+### 4.3 Planner Service
+*   **Purpose:** Manages operational task details, kanban pipelines, calendars, deadlines, and task dependency graphs.
+*   **Persistence:** PostgreSQL.
+
+### 4.4 Knowledge Graph Service
 *   **Purpose:** Orchestrates high-performance graph connections between entities (`Person`, `Dynasty`, `Civilization`, `Location`) and corresponding historical references.
-*   **Technology Choice:** PostgreSQL with the **Apache AGE** extension or Neo4j to allow complex graph queries and traversal patterns.
+*   **Technology Choice:** PostgreSQL with the **Apache AGE** extension.
 
-### 4.4 Recommendation Engine Service
+### 4.5 AI Service
+*   **Purpose:** Computes vector embeddings, triggers LLM scripting assistants, and generates draft summaries.
+*   **Persistence:** Redis Cache.
+
+### 4.6 Intelligence Service (The Reasoning Engine)
 *   **Purpose:** Evaluates analytics performance gaps, roadmap progress rates, and viewer questions to actively recommend script topics, seasonal release timings, and content pillars.
 *   **Reason for Separation:** Decoupled from core analytical calculations to allow rapid iteration on optimization models without risking service downtime.
 
-### 4.5 Data Lake & Ingestion Layer
+### 4.7 Data Lake & Ingestion Layer
 *   **Purpose:** Stores immutable, chronological raw records returned from the YouTube API prior to database normalization.
 *   **Reason for Separation:** Preserves raw, historical data patterns forever (allowing future deep analytics queries or ML model training) without polluting the transactional database schemas.
 
-### 4.6 Plugin Architecture & Integrations Gateway
+### 4.8 Plugin Architecture & Integrations Gateway
 *   **Purpose:** Standardizes how external tools (Notion, Obsidian, Google Drive, Google Books API, Wikipedia, Substack, Twitter/X) interface with the platform via generic plugin contracts.
 *   **Design Pattern:** Strategy design pattern where each integration implements a common Interface contract (`IIntegrationPlugin`), ensuring no hardcoded service connections exist.
 
@@ -287,7 +294,7 @@ To ensure absolute system cohesion and prevent future overengineering, the platf
             │ (Contextual Entities)                 │ (Historical Metrics)
             ▼                                       ▼
 ┌────────────────────────────────────────────────────────────────┘
-│                  Intelligence Reasoning Layer                  │
+│                  Intelligence Reasoning Service                │
 │  - Formulates active roadmap recommendations                   │
 │  - Analyzes high-performing historical hooks                   │
 │  - Computes content gaps and suggests next scripts             │
@@ -298,4 +305,4 @@ To ensure absolute system cohesion and prevent future overengineering, the platf
 
 ## 6. Observability, Security, & Architecture Decisions
 
-Refer to the official Architecture Decision Records (ADR-001 through ADR-005) for extensive analysis on framework, persistence, messaging, and database topology choices. Full monitoring is backed by Prometheus for metrics scraping, Grafana dashboards, Jaeger tracing context, and Sentry for real-time frontend exceptions tracking.
+Refer to the official Architecture Decision Records (ADR-001 through ADR-015) for extensive analysis on framework, persistence, messaging, and database topology choices. Full monitoring is backed by Prometheus for metrics scraping, Grafana dashboards, Jaeger tracing context, and Sentry for real-time frontend exceptions tracking.
