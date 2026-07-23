@@ -104,12 +104,11 @@ Major functions executed by the CIP:
 * **YT-FR-005:** The system **shall** fetch comment feeds, classify them by sentiment (Positive, Neutral, Negative), and isolate high-priority questions.
 * **YT-FR-006:** The synchronizer **shall** gracefully handle YouTube API rate limit quotas (HTTP 403 / 429) using exponential backoff retry algorithms.
 
-### 3.3 Module 3: Content & Roadmap Management (CT-FR)
-* **CT-FR-001:** The system **shall** allow the Admin to create, read, update, and delete (CRUD) `Video` records, `Series` tracks, and `Roadmap` definitions.
+### 3.3 Module 3: Content Management (CT-FR)
+* **CT-FR-001:** The system **shall** allow the Admin to create, read, update, and delete (CRUD) `Video` records and `Series` tracks.
 * **CT-FR-002:** The system **shall** restrict state transitions of a video node to defined workflow steps: `Ideation`, `Research`, `Scripting`, `Recording`, `Editing`, `Scheduled`, `Published`.
 * **CT-FR-003:** When a video transitions to `Published`, the Content Service **shall** emit a `video.published` event to the Event Bus.
 * **CT-FR-004:** The system **shall** allow a `Video` record to link to multiple `Series` nodes or nested `Roadmap` groups.
-* **CT-FR-005:** The Admin **shall** be able to assign concrete target deadlines and milestone markers to individual `Roadmap` nodes.
 
 ### 3.4 Module 4: Analytics Engine (AN-FR)
 * **AN-FR-001:** The Analytics Service **shall** generate and store daily aggregate snapshots of view counts, watch times, subscriber gains, and average CTR.
@@ -144,24 +143,256 @@ Major functions executed by the CIP:
 
 ---
 
-## 4. Non-Functional Requirements
+## 4. OpenAPI 3.1 Contract Specifications
 
-### 4.1 Performance Requirements
+All microservice REST endpoints are fully detailed under the OpenAPI 3.1 specification. Below is the precise API specification contract for the Content Service `/api/videos` operations.
+
+```yaml
+openapi: 3.1.0
+info:
+  title: Content Service Video Management API
+  version: 1.0.0
+  description: Authoritative API contract for video lifecycle CRUD and status transformations in the CIP.
+paths:
+  /api/videos:
+    get:
+      summary: Retrieve list of video items
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ideation, research, scripting, recording, editing, scheduled, published]
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: List of video entries successfully retrieved.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Video'
+        '401':
+          description: Unauthorized. Missing or expired JWT.
+    post:
+      summary: Create a new video concept
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                  default: ideation
+      responses:
+        '201':
+          description: Video record created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Video'
+        '400':
+          description: Invalid request parameters.
+
+  /api/videos/{id}:
+    get:
+      summary: Retrieve detailed metadata for a video record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Detailed video metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Video'
+        '404':
+          description: Video record not found.
+    patch:
+      summary: Update video details or workflow transition state
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                  enum: [ideation, research, scripting, recording, editing, scheduled, published]
+      responses:
+        '200':
+          description: Video updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Video'
+        '400':
+          description: Invalid status transition path.
+    delete:
+      summary: Permanent deletion of a video node
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Video deleted successfully.
+        '404':
+          description: Video not found.
+
+components:
+  schemas:
+    Video:
+      type: object
+      required: [id, tenant_id, title, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [ideation, research, scripting, recording, editing, scheduled, published]
+        youtube_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+```
+
+---
+
+## 5. Non-Functional Requirements & Feature Flags
+
+### 5.1 Performance Requirements
 * **Response Latency:** 95% of standard read API queries routed through the API Gateway shall respond in under 100ms.
 * **Data Refresh Synchronization:** Automatic YouTube sync routines must terminate within 10 minutes of initial execution.
 * **Concurrent Users (Phase 3 Portal):** The system shall scale horizontally to support up to 5,000 simultaneous connections without performance degradation.
 
-### 4.2 Security Requirements
+### 5.2 Security Requirements
 * **TLS Encryption:** All active HTTP connections shall require TLS 1.3 encryption.
 * **Secret Storage:** All YouTube API keys, Google client secrets, OAuth tokens, and database passwords shall be stored securely in environment variables or a Secrets Manager. No secrets shall be hardcoded.
 * **SQL Injection Prevention:** All services shall utilize parameterized queries or object-relational mapping (ORM) systems to block database injection vectors.
 
-### 4.3 Scalability & Availability
+### 5.3 Scalability & Availability
 * **High Availability:** Core services shall target a 99.9% uptime metric, utilizing robust health-check parameters.
 * **Database Scaling:** PostgreSQL instances shall support read-replica routing configurations.
 * **Stateless Microservices:** All backend services must remain stateless, maintaining session data strictly in secure distributed caches (Redis) or utilizing client-side JWT authorization.
 
-### 4.4 Reliability, Maintainability, and Portability
-* **Automated Restarts:** All services shall run with Docker policy flags `restart: unless-stopped`.
-* **Structured Logs:** All services must output standard logs to `stdout`/`stderr` using clean JSON schemas.
-* **Multi-Platform Deployment:** The system shall run identically on linux/amd64 and linux/arm64 system architectures.
+### 5.4 Feature Flag Toggling Configuration
+To enable gradual feature rollouts (e.g., enabling Public Search while keeping Knowledge Graphs in Beta), a centralized feature flag system **shall** be exposed.
+
+Every service **shall** poll or subscribe to dynamic flags configuration (via Unleash or custom Redis hashes).
+
+```json
+{
+  "flags": {
+    "public_search_portal": {
+      "enabled": true,
+      "beta_users_only": false
+    },
+    "knowledge_graph_visualizer": {
+      "enabled": false,
+      "beta_users_only": true
+    },
+    "ai_script_copilot": {
+      "enabled": true,
+      "beta_users_only": true
+    },
+    "active_recommendations_engine": {
+      "enabled": true,
+      "beta_users_only": false
+    }
+  }
+}
+```
+
+---
+
+## 6. Observability & Monitoring Framework
+
+To achieve enterprise-grade reliability, every container/service **shall** expose a diagnostic endpoint: `/health`.
+
+### 6.1 Standard Health Check Response (`GET /health`)
+```json
+{
+  "status": "healthy",
+  "version": "1.0.4",
+  "uptime_seconds": 182450,
+  "timestamp": "2024-07-23T12:00:00Z",
+  "checks": {
+    "database": {
+      "status": "connected",
+      "latency_ms": 3.4
+    },
+    "event_bus": {
+      "status": "connected",
+      "latency_ms": 11.2
+    },
+    "external_apis": {
+      "google_youtube_api": "accessible"
+    }
+  }
+}
+```
+
+### 6.2 Structured Logging Standard
+All logs generated by the application **must** be emitted to standard output (`stdout`) in JSON format. The required schema includes:
+
+```json
+{
+  "timestamp": "2024-07-23T12:00:15.124Z",
+  "level": "INFO",
+  "service_name": "ai-service",
+  "trace_id": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+  "message": "Generated embedding vector for ResearchItem node success",
+  "meta": {
+    "research_item_id": "a901ff2a-bb32-4752-9642-1e967a12bc23",
+    "vector_dimensions": 1536
+  }
+}
+```
+*   `trace_id` is propagated from the API Gateway downstream using standard W3C Trace Context headers, allowing Jaeger to trace requests end-to-end.

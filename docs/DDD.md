@@ -7,83 +7,81 @@
 
 This document specifies the business entities, value objects, aggregates, and data schemas that map the domain language directly into physical databases. To prevent service coupling, every aggregate root belongs exclusively to one microservice database domain.
 
-### 1.1 Content Domain Aggregates
-* **`Video` (Aggregate Root):** Represets a distinct piece of media. Governs status transitions, scheduling, and YouTube linkages.
-* **`Series`:** Represents an ordered collection of videos focusing on a specific historical theme or structured storyline.
-* **`Roadmap` & `RoadmapNode`:** Orchestrates visual paths, timelines, and release milestones.
+### 1.1 Core Aggregates
+* **`Video` (Content Service Aggregate Root):** Governs standard physical video details, YouTube links, series inclusion, and status transitions.
+* **`Series` (Content Service):** An ordered sequence of related video assets mapping a particular narrative arc.
+* **`Roadmap` & `Milestone` (Roadmap Service Aggregate Root):** The strategic vision mapping goals, release schedules, and thematic priorities.
+* **`Task` & `WorkflowStep` (Planner Service Aggregate Root):** Coordinates standard operational tasks, checklists, dependencies, deadlines, and visual Kanban pipelines.
+* **`KnowledgeGraphNode` & `KnowledgeGraphEdge` (Knowledge Graph Service Aggregate Root):** Manages historical context graph associations mapping dynasties, locations, civilizations, and references.
+* **`RawIngestionRecord` (Data Lake Service Aggregate Root):** Stores raw JSON data feeds pulled from public APIs to preserve original immutable state.
+* **`ActiveRecommendation` (Recommendation Service Aggregate Root):** Formulates structural AI recommendations by reasoning over metrics, backlog milestones, and content gaps.
 
-### 1.2 Knowledge Domain Aggregates
-* **`ResearchItem` (Aggregate Root):** The core unit of information containing textual content, metadata, and citation references.
-* **`Book`:** Bibliographical representation of external academic resources.
-* **`Quote`:** High-precision textual segments mapped directly to specific reference page numbers or media timestamps.
-* **`Entity` (Civilization, Dynasty, Location, Person):** Represents historical context elements that tag notes and script blocks.
+---
 
-### 1.3 Entity Relationship Diagram (Conceptual Layout)
+## 2. Comprehensive Event Catalog Specification
 
-```text
-       ┌────────────────────────┐              ┌────────────────────────┐
-       │   Video (Aggregate)    │◄────────────►│  Series (Aggregate)    │
-       └───────────┬────────────┘              └────────────────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐              ┌────────────────────────┐
-       │   Roadmap / Node       │              │  Research (Aggregate)  │
-       └────────────────────────┘              └───────────┬────────────┘
-                                                           │
-                        ┌──────────────────────────────────┴──────────────────────────────────┐
-                        ▼                                  ▼                                  ▼
-            ┌──────────────────────┐           ┌──────────────────────┐           ┌──────────────────────┐
-            │   Book / Quote       │           │ Civilization/Dynasty │           │ Location / Person    │
-            └──────────────────────┘           └──────────────────────┘           └──────────────────────┘
+All microservices within CIP communicate asynchronously via the Event Bus. The following catalog establishes precise specifications, including schema schemas, publishers, consumers, versioning, retry policies, and Dead Letter Queue (DLQ) pathways.
+
+| Event Type | Version | Publisher Service | Primary Consumers | Retry Policy | Dead Letter Queue |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`video.imported`** | v1.0.0 | YouTube Sync | Content, Analytics | 3 attempts, exponential backoff (multiplier: 2) | `dlq.video.imported` |
+| **`video.updated`** | v1.0.0 | Content | Search, Graph | 3 attempts, linear backoff (interval: 5s) | `dlq.video.updated` |
+| **`video.deleted`** | v1.0.0 | Content | Search, Planner, Graph | 3 attempts, linear backoff (interval: 5s) | `dlq.video.deleted` |
+| **`roadmap.created`** | v1.0.0 | Roadmap | Planner, Recommendation | 2 attempts, backoff | `dlq.roadmap.created` |
+| **`series.started`** | v1.0.0 | Content | Roadmap, Recommendation | 3 attempts, exponential backoff | `dlq.series.started` |
+| **`series.completed`** | v1.0.0 | Content | Roadmap, Recommendation | 3 attempts, exponential backoff | `dlq.series.completed` |
+| **`analytics.synced`** | v1.0.0 | YouTube Sync | Analytics, Recommendation | 5 attempts, backoff | `dlq.analytics.synced` |
+| **`research.imported`** | v1.0.0 | Knowledge | AI, Search | 3 attempts, linear backoff | `dlq.research.imported` |
+| **`embedding.generated`** | v1.0.0 | AI | Search, Graph | 3 attempts, exponential backoff | `dlq.embedding.generated` |
+| **`script.generated`** | v1.0.0 | AI | Content, Planner | 3 attempts, linear backoff | `dlq.script.generated` |
+| **`youtube.sync.failed`** | v1.0.0 | YouTube Sync | Notification, Logger | 1 attempt (immediate alert) | `dlq.sync.failed` |
+
+### 2.1 Event Schema Example: `video.imported` (JSON Schema)
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "VideoImportedEvent",
+  "type": "object",
+  "required": ["event_id", "timestamp", "version", "tenant_id", "video_data"],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "version": { "type": "string", "default": "1.0.0" },
+    "tenant_id": { "type": "string", "format": "uuid" },
+    "video_data": {
+      "type": "object",
+      "required": ["youtube_video_id", "title", "published_at"],
+      "properties": {
+        "youtube_video_id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "published_at": { "type": "string", "format": "date-time" },
+        "channel_id": { "type": "string" }
+      }
+    }
+  }
+}
 ```
 
 ---
 
-## 2. Microservice Database Schemas (DML / DDL)
+## 3. Microservice Database Schemas (DML / DDL)
 
-The following structured SQL statements define the PostgreSQL and pgvector database tables, relationships, and multi-tenant isolation layers.
+To preserve strict separation, each microservice owns its own tables.
 
-### 2.1 Identity Service Database Schema
+### 3.1 Content Service Schema
 ```sql
--- Identity Service persistence layer
-CREATE TABLE IF NOT EXISTS id_users (
+CREATE TABLE IF NOT EXISTS ct_videos (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    hashed_password VARCHAR(255),
-    google_oauth_id VARCHAR(255) UNIQUE,
-    display_name VARCHAR(100),
-    role VARCHAR(50) NOT NULL DEFAULT 'viewer',
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS id_refresh_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    user_id UUID REFERENCES id_users(id) ON DELETE CASCADE,
-    token_hash VARCHAR(255) UNIQUE NOT NULL,
-    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    revoked BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_id_users_tenant ON id_users(tenant_id);
-```
-
-### 2.2 Content Service Database Schema
-```sql
--- Content Service persistence layer
-CREATE TYPE video_status AS ENUM (
-    'ideation', 'research', 'scripting', 'recording', 'editing', 'scheduled', 'published'
-);
-
-CREATE TABLE IF NOT EXISTS ct_roadmaps (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
+    youtube_id VARCHAR(50) UNIQUE,
     title VARCHAR(255) NOT NULL,
     description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    status VARCHAR(50) DEFAULT 'ideation',
+    scheduled_publish_time TIMESTAMP WITH TIME ZONE,
+    actual_publish_time TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS ct_series (
@@ -94,129 +92,119 @@ CREATE TABLE IF NOT EXISTS ct_series (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS ct_videos (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    youtube_id VARCHAR(50) UNIQUE,
-    roadmap_id UUID REFERENCES ct_roadmaps(id) ON DELETE SET NULL,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    status video_status DEFAULT 'ideation',
-    scheduled_publish_time TIMESTAMP WITH TIME ZONE,
-    actual_publish_time TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
 CREATE TABLE IF NOT EXISTS ct_series_videos (
     series_id UUID REFERENCES ct_series(id) ON DELETE CASCADE,
     video_id UUID REFERENCES ct_videos(id) ON DELETE CASCADE,
     sort_order INT NOT NULL,
     PRIMARY KEY (series_id, video_id)
 );
-
-CREATE INDEX idx_ct_videos_tenant_status ON ct_videos(tenant_id, status);
 ```
 
-### 2.3 Analytics Service Database Schema
+### 3.2 Roadmap Service Schema (Isolated from Content)
 ```sql
--- Analytics Service persistence layer
-CREATE TABLE IF NOT EXISTS an_channel_snapshots (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    subscriber_count INT NOT NULL,
-    total_views BIGINT NOT NULL,
-    total_watch_time_minutes BIGINT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS an_video_snapshots (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    video_id UUID NOT NULL, -- references Content Service Video ID loosely
-    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    views INT NOT NULL,
-    likes INT DEFAULT 0,
-    comments INT DEFAULT 0,
-    average_view_duration_seconds INT,
-    impression_click_through_rate NUMERIC(5,2)
-);
-
-CREATE TABLE IF NOT EXISTS an_video_retention_curves (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    video_id UUID NOT NULL,
-    retention_array_percentages DOUBLE PRECISION[] NOT NULL, -- 2nd-by-2nd audience retention percentages
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_an_video_snapshots_lookup ON an_video_snapshots(tenant_id, video_id, recorded_at DESC);
-```
-
-### 2.4 Knowledge & AI Service Database Schema
-```sql
--- Enable pgvector extension for semantic operations
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- Knowledge Service persistence layer
-CREATE TABLE IF NOT EXISTS kn_books (
+CREATE TABLE IF NOT EXISTS rm_roadmaps (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL,
     title VARCHAR(255) NOT NULL,
-    author VARCHAR(255),
-    isbn VARCHAR(50),
+    description TEXT,
+    target_date DATE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS kn_research_items (
+CREATE TABLE IF NOT EXISTS rm_milestones (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID NOT NULL,
+    roadmap_id UUID REFERENCES rm_roadmaps(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
-    source_type VARCHAR(100), -- Book, Paper, Transcript, Manual Note
-    raw_content TEXT NOT NULL,
-    content_embedding vector(1536), -- 1536 dimensional embedding vector (OpenAI text-embedding-3-small standard)
+    status VARCHAR(50) DEFAULT 'planned', -- planned, in-progress, completed, delayed
+    target_quarter VARCHAR(10), -- e.g., '2024-Q3'
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### 3.3 Planner Service Schema (Isolated)
+```sql
+CREATE TABLE IF NOT EXISTS pl_tasks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    video_id UUID, -- loosely references Content Service video ID
+    title VARCHAR(255) NOT NULL,
+    assigned_to VARCHAR(100),
+    column_state VARCHAR(50) DEFAULT 'todo', -- todo, in-progress, review, done
+    due_date TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS pl_task_dependencies (
+    parent_task_id UUID REFERENCES pl_tasks(id) ON DELETE CASCADE,
+    child_task_id UUID REFERENCES pl_tasks(id) ON DELETE CASCADE,
+    PRIMARY KEY (parent_task_id, child_task_id)
+);
+```
+
+### 3.4 Data Lake Raw-Ingestion Schema
+```sql
+CREATE TABLE IF NOT EXISTS dl_raw_ingestion_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    data_source VARCHAR(100) NOT NULL, -- e.g. 'youtube_api_video_details'
+    external_identifier VARCHAR(100) NOT NULL, -- e.g. youtube video ID
+    raw_payload JSONB NOT NULL, -- original unmodified JSON record
+    ingested_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_dl_raw_source_identifier ON dl_raw_ingestion_log(data_source, external_identifier);
+```
+
+### 3.5 Knowledge Graph Schema (Apache AGE SQL Concept)
+Utilizing standard relational representations mapping vertices and edges which Apache AGE handles transparently.
+
+```sql
+-- Vertices
+CREATE TABLE IF NOT EXISTS kg_vertices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    label VARCHAR(100) NOT NULL, -- 'Civilization', 'Dynasty', 'Location', 'Person'
+    properties JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Edges mapping connection networks
+CREATE TABLE IF NOT EXISTS kg_edges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    source_vertex_id UUID REFERENCES kg_vertices(id) ON DELETE CASCADE,
+    target_vertex_id UUID REFERENCES kg_vertices(id) ON DELETE CASCADE,
+    relationship_label VARCHAR(100) NOT NULL, -- e.g. 'RULED_BY', 'LOCATED_IN'
+    properties JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_kg_edges_traversal ON kg_edges(source_vertex_id, target_vertex_id);
+```
+
+### 3.6 Recommendation Engine Schema
+```sql
+CREATE TABLE IF NOT EXISTS rc_recommendations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    category VARCHAR(100) NOT NULL, -- e.g. 'content_gap', 'scheduling_optimization'
+    confidence_score NUMERIC(5,2) NOT NULL, -- e.g. 94.50
+    recommendation_text TEXT NOT NULL,
+    supporting_metrics JSONB NOT NULL, -- metrics details that formulated this suggestion
+    status VARCHAR(50) DEFAULT 'active', -- active, applied, dismissed
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE IF NOT EXISTS kn_quotes (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    book_id UUID REFERENCES kn_books(id) ON DELETE CASCADE,
-    research_item_id UUID REFERENCES kn_research_items(id) ON DELETE CASCADE,
-    quote_text TEXT NOT NULL,
-    page_number INT,
-    quote_embedding vector(1536),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS kn_entities (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id UUID NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    entity_type VARCHAR(100), -- Dynasty, Civilization, Location, Person
-    description TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS kn_research_entities (
-    research_item_id UUID REFERENCES kn_research_items(id) ON DELETE CASCADE,
-    entity_id UUID REFERENCES kn_entities(id) ON DELETE CASCADE,
-    PRIMARY KEY (research_item_id, entity_id)
-);
-
--- Optimize semantic vector search queries using HNSW indexes
-CREATE INDEX IF NOT EXISTS idx_kn_research_embeddings ON kn_research_items
-USING hnsw (content_embedding vector_cosine_ops);
 ```
 
 ---
 
-## 3. UI/UX Wireframe Concepts
+## 4. UI/UX Wireframe Concepts
 
 The Content Intelligence Platform dashboard provides a unified view of historical content metrics alongside future content planning.
 
-### 3.1 Workspace Admin Layout
+### 4.1 Workspace Admin Layout
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │  CIP Admin Command Center                                              [User Profile]  │
@@ -236,7 +224,7 @@ The Content Intelligence Platform dashboard provides a unified view of historica
 └─────────────────┴──────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Audience Public Knowledge Graph Layout (Phase 3)
+### 4.2 Audience Public Knowledge Graph Layout (Phase 3)
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
 │  CIP Audience Portal — Interactive Knowledge Map                                       │
