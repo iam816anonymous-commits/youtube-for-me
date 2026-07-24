@@ -22,3 +22,17 @@ services:
       - name: roadmap-routes
         paths:
           - /api/v1/roadmaps
+
+  - name: knowledge-service
+    url: http://knowledge-service:8084
+    routes:
+      - name: knowledge-routes
+        paths:
+          - /api/v1/library
+
+  - name: ai-service
+    url: http://ai-service:8085
+    routes:
+      - name: ai-routes
+        paths:
+          - /api/v1/ai

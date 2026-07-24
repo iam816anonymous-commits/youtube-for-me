@@ -33,7 +33,7 @@ app.get('/health', (req, res) => {
 app.get('/api/v1/videos', async (req, res) => {
   try {
     const { status } = req.query;
-    let queryStr = 'SELECT * FROM ct_videos WHERE tenant_id = $1';
+    let queryStr = 'SELECT * FROM content.ct_videos WHERE tenant_id = $1';
     let params = [DEFAULT_TENANT_ID];
 
     if (status) {
@@ -66,7 +66,7 @@ app.post('/api/v1/videos', async (req, res) => {
   };
 
   try {
-    const queryStr = 'INSERT INTO ct_videos (id, tenant_id, title, description, status) VALUES ($1, $2, $3, $4, $5) RETURNING *';
+    const queryStr = 'INSERT INTO content.ct_videos (id, tenant_id, title, description, status) VALUES ($1, $2, $3, $4, $5) RETURNING *';
     const params = [newVideo.id, newVideo.tenant_id, newVideo.title, newVideo.description, newVideo.status];
     const result = await pool.query(queryStr, params);
     res.status(201).json(result.rows[0]);

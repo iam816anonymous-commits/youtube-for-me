@@ -31,7 +31,7 @@ app.get('/health', (req, res) => {
 // Retrieve roadmaps
 app.get('/api/v1/roadmaps', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM rm_roadmaps WHERE tenant_id = $1', [DEFAULT_TENANT_ID]);
+    const result = await pool.query('SELECT * FROM roadmap.rm_roadmaps WHERE tenant_id = $1', [DEFAULT_TENANT_ID]);
     res.json(result.rows);
   } catch (err) {
     res.json(mockRoadmaps);
@@ -50,7 +50,7 @@ app.post('/api/v1/roadmaps', async (req, res) => {
   };
 
   try {
-    const queryStr = 'INSERT INTO rm_roadmaps (id, tenant_id, title, description, target_date) VALUES ($1, $2, $3, $4, $5) RETURNING *';
+    const queryStr = 'INSERT INTO roadmap.rm_roadmaps (id, tenant_id, title, description, target_date) VALUES ($1, $2, $3, $4, $5) RETURNING *';
     const params = [newRoadmap.id, newRoadmap.tenant_id, newRoadmap.title, newRoadmap.description, newRoadmap.target_date];
     const result = await pool.query(queryStr, params);
     res.status(201).json(result.rows[0]);

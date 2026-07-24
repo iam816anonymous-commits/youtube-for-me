@@ -39,6 +39,7 @@ services:
       - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
+      - ./services/database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     restart: unless-stopped
     networks:
       - cip-network
@@ -91,6 +92,31 @@ services:
     environment:
       - PORT=8083
       - DATABASE_URL=postgresql://cip_admin:cip_secure_password@database:5432/cip_master_db?schema=roadmap
+      - DEFAULT_TENANT_ID=00000000-0000-0000-0000-000000000000
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+  knowledge-service:
+    build:
+      context: ./services/knowledge
+      dockerfile: Dockerfile
+    container_name: cip-knowledge-service
+    environment:
+      - PORT=8084
+      - DATABASE_URL=postgresql://cip_admin:cip_secure_password@database:5432/cip_master_db?schema=knowledge
+      - DEFAULT_TENANT_ID=00000000-0000-0000-0000-000000000000
+    restart: unless-stopped
+    networks:
+      - cip-network
+
+  ai-service:
+    build:
+      context: ./services/ai
+      dockerfile: Dockerfile
+    container_name: cip-ai-service
+    environment:
+      - PORT=8085
       - DEFAULT_TENANT_ID=00000000-0000-0000-0000-000000000000
     restart: unless-stopped
     networks:
