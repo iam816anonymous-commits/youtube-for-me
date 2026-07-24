@@ -36,3 +36,10 @@ services:
       - name: ai-routes
         paths:
           - /api/v1/ai
+
+  - name: youtube-sync-service
+    url: http://youtube-sync-service:8086
+    routes:
+      - name: youtube-sync-routes
+        paths:
+          - /api/v1/youtube

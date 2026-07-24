@@ -136,6 +136,21 @@ services:
     networks:
       - cip-network
 
+  youtube-sync-service:
+    build:
+      context: ./services/youtube-sync
+      dockerfile: Dockerfile
+    container_name: cip-youtube-sync-service
+    environment:
+      - PORT=8086
+      - DATABASE_URL=postgresql://cip_admin:cip_secure_password@database:5432/cip_master_db?schema=analytics
+      - DEFAULT_TENANT_ID=00000000-0000-0000-0000-000000000000
+      - GOOGLE_CLIENT_ID=mock_google_client_id_01
+      - GOOGLE_CLIENT_SECRET=mock_google_client_secret_99
+    restart: unless-stopped
+    networks:
+      - cip-network
+
 networks:
   cip-network:
     driver: bridge

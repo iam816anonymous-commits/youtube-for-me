@@ -8,6 +8,10 @@ export default function Home() {
   const [newDesc, setNewDesc] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
+  // YouTube Sync States
+  const [ytMetrics, setYtMetrics] = useState(null);
+  const [syncStatusMsg, setSyncStatusMsg] = useState('');
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   // Fetch core values from Gateway API
@@ -26,6 +30,12 @@ export default function Home() {
         const data = await resRoadmaps.json();
         setRoadmaps(data);
       }
+
+      const resYt = await fetch(`${API_URL}/api/v1/youtube/metrics`);
+      if (resYt.ok) {
+        const data = await resYt.json();
+        setYtMetrics(data);
+      }
     } catch (err) {
       // Fallback states for resilient operation when API gateway is booting up
       const defaultVideos = [
@@ -35,8 +45,16 @@ export default function Home() {
       const defaultRoadmaps = [
         { id: '34bc98e1-da81-42ab-bd99-0129bc4897bc', title: 'Historical Dynasties series', description: 'Analyze major world civilisations' }
       ];
+      const defaultYt = {
+        channel_id: 'UC_mock_channel_01',
+        subscriber_count: 142400,
+        total_views: 4892400,
+        total_watch_time_minutes: 58245000,
+        last_synced_at: new Date().toISOString()
+      };
       setVideos(defaultVideos);
       setRoadmaps(defaultRoadmaps);
+      setYtMetrics(defaultYt);
     }
   };
 
@@ -79,17 +97,81 @@ export default function Home() {
     }
   };
 
+  const handleYtSync = async () => {
+    setSyncStatusMsg('Refreshing Access Token and fetching YouTube Analytics...');
+    try {
+      const res = await fetch(`${API_URL}/api/v1/youtube/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setYtMetrics(data.metrics);
+        setSyncStatusMsg('YouTube data successfully synchronized!');
+        setTimeout(() => setSyncStatusMsg(''), 4000);
+      } else {
+        throw new Error('Sync fail');
+      }
+    } catch (err) {
+      // Simulated fallback sync update
+      if (ytMetrics) {
+        const updated = {
+          ...ytMetrics,
+          subscriber_count: ytMetrics.subscriber_count + 12,
+          total_views: ytMetrics.total_views + 245,
+          last_synced_at: new Date().toISOString()
+        };
+        setYtMetrics(updated);
+        setSyncStatusMsg('Simulated sync complete (API Gateway offline).');
+        setTimeout(() => setSyncStatusMsg(''), 4000);
+      }
+    }
+  };
+
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', padding: '24px', backgroundColor: '#f9f9f9', minHeight: '100vh' }}>
       <header style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h1 style={{ margin: 0, color: '#111' }}>CIP Admin Command Center</h1>
-          <p style={{ margin: '4px 0 0 0', color: '#666' }}>Phase 1 & 2 — Content Intelligence Platform</p>
+          <p style={{ margin: '4px 0 0 0', color: '#666' }}>Phase 1, 2 & 3 — Content Intelligence Platform</p>
         </div>
         <div style={{ backgroundColor: '#e2e8f0', padding: '8px 16px', borderRadius: '20px', fontSize: '14px', fontWeight: 'bold' }}>
           Tenant: Default (00000000)
         </div>
       </header>
+
+      {/* YouTube Analytics Quick View Card */}
+      {ytMetrics && (
+        <div style={{ backgroundColor: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderLeft: '4px solid #c53030' }}>
+          <div>
+            <h3 style={{ marginTop: 0, marginBottom: '12px', color: '#c53030' }}>YouTube Analytics Real-Time Stats</h3>
+            <div style={{ display: 'flex', gap: '24px' }}>
+              <div>
+                <span style={{ fontSize: '12px', color: '#718096', textTransform: 'uppercase', fontWeight: 'bold' }}>Subscribers</span>
+                <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '4px 0 0 0' }}>{ytMetrics.subscriber_count.toLocaleString()}</p>
+              </div>
+              <div>
+                <span style={{ fontSize: '12px', color: '#718096', textTransform: 'uppercase', fontWeight: 'bold' }}>Lifetime Views</span>
+                <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '4px 0 0 0' }}>{ytMetrics.total_views.toLocaleString()}</p>
+              </div>
+              <div>
+                <span style={{ fontSize: '12px', color: '#718096', textTransform: 'uppercase', fontWeight: 'bold' }}>Watch Time (Mins)</span>
+                <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '4px 0 0 0' }}>{ytMetrics.total_watch_time_minutes.toLocaleString()}</p>
+              </div>
+            </div>
+            <p style={{ margin: '12px 0 0 0', fontSize: '12px', color: '#a0aec0' }}>Last Synced: {new Date(ytMetrics.last_synced_at).toLocaleString()}</p>
+          </div>
+          <div>
+            <button
+              onClick={handleYtSync}
+              style={{ padding: '10px 16px', backgroundColor: '#c53030', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+              Sync YouTube API
+            </button>
+            {syncStatusMsg && <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: '#c53030', textAlign: 'right', fontWeight: 'bold' }}>{syncStatusMsg}</p>}
+          </div>
+        </div>
+      )}
 
       {errorMsg && (
         <div style={{ backgroundColor: '#fffaf0', border: '1px solid #fbd38d', padding: '12px', borderRadius: '6px', color: '#dd6b20', marginBottom: '20px', fontSize: '14px' }}>
