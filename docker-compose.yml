@@ -58,6 +58,20 @@ services:
     networks:
       - cip-network
 
+  public-portal:
+    build:
+      context: ./apps/public-portal
+      dockerfile: Dockerfile
+    container_name: cip-public-portal
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    restart: unless-stopped
+    networks:
+      - cip-network
+
   identity-service:
     build:
       context: ./services/identity
