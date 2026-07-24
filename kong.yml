@@ -8,6 +8,7 @@ services:
       - name: auth-routes
         paths:
           - /api/v1/auth
+        strip_path: false
 
   - name: content-service
     url: http://content-service:8082
@@ -15,6 +16,7 @@ services:
       - name: content-routes
         paths:
           - /api/v1/videos
+        strip_path: false
 
   - name: roadmap-service
     url: http://roadmap-service:8083
@@ -22,6 +24,7 @@ services:
       - name: roadmap-routes
         paths:
           - /api/v1/roadmaps
+        strip_path: false
 
   - name: knowledge-service
     url: http://knowledge-service:8084
@@ -29,6 +32,7 @@ services:
       - name: knowledge-routes
         paths:
           - /api/v1/library
+        strip_path: false
 
   - name: ai-service
     url: http://ai-service:8085
@@ -36,6 +40,7 @@ services:
       - name: ai-routes
         paths:
           - /api/v1/ai
+        strip_path: false
 
   - name: youtube-sync-service
     url: http://youtube-sync-service:8086
@@ -43,3 +48,4 @@ services:
       - name: youtube-sync-routes
         paths:
           - /api/v1/youtube
+        strip_path: false

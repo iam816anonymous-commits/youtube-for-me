@@ -173,6 +173,47 @@ export default function Home() {
         </div>
       )}
 
+      {/* Intelligence Decision Engine Panel (Phase 2 & 3 Business Logic Reasoning) */}
+      <div style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '24px', borderLeft: '4px solid #319795' }}>
+        <h3 style={{ marginTop: 0, marginBottom: '16px', color: '#319795', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          🧠 Intelligence Decision Engine Pipeline
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+          <div>
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#4a5568', textTransform: 'uppercase' }}>Content Gap Analysis</h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px' }}>
+                  <span>Temple Heritage Pillar</span>
+                  <span style={{ color: '#38a169' }}>82% Covered</span>
+                </div>
+                <div style={{ height: '8px', backgroundColor: '#edf2f7', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ width: '82%', height: '100%', backgroundColor: '#38a169' }}></div>
+                </div>
+              </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 'bold', marginBottom: '4px' }}>
+                  <span>Ancient Wisdom Pillar</span>
+                  <span style={{ color: '#e53e3e' }}>11% Covered</span>
+                </div>
+                <div style={{ height: '8px', backgroundColor: '#edf2f7', borderRadius: '4px', overflow: 'hidden' }}>
+                  <div style={{ width: '11%', height: '100%', backgroundColor: '#e53e3e' }}></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style={{ borderLeft: '1px solid #e2e8f0', paddingLeft: '24px' }}>
+            <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#4a5568', textTransform: 'uppercase' }}>Content Opportunity Recommendation</h4>
+            <div style={{ backgroundColor: '#f0fff4', border: '1px solid #c6f6d5', padding: '12px', borderRadius: '6px', color: '#22543d' }}>
+              <p style={{ margin: 0, fontSize: '14px', fontWeight: 'bold' }}>💡 Action Recommended:</p>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', lineHeight: '1.4' }}>
+                Your <strong>Ancient Wisdom</strong> roadmap track is falling behind schedule. Delay the Temple Heritage draft and outline an <strong>Ancient Wisdom</strong> script concept immediately to capture peak viewer seasonal interest.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {errorMsg && (
         <div style={{ backgroundColor: '#fffaf0', border: '1px solid #fbd38d', padding: '12px', borderRadius: '6px', color: '#dd6b20', marginBottom: '20px', fontSize: '14px' }}>
           ⚠️ {errorMsg}

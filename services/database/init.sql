@@ -68,3 +68,16 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO knowledge.kn_research_items (id, book_id, title, raw_content, tag_entities) VALUES
 ('55bc98e1-da81-42ab-bd99-0129bc4897ff', '1001-abc-9923', 'Thermopylae passage', 'Herodotus detail regarding 300 Spartans holding the hot gates.', ARRAY['Sparta', 'Greece'])
 ON CONFLICT (id) DO NOTHING;
+
+
+-- Analytics schema
+CREATE SCHEMA IF NOT EXISTS analytics;
+
+CREATE TABLE IF NOT EXISTS analytics.an_channel_snapshots (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    subscriber_count INT NOT NULL,
+    total_views INT NOT NULL,
+    total_watch_time_minutes INT NOT NULL,
+    recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
