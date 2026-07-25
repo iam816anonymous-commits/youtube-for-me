@@ -19,6 +19,33 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000
 });
 
+// Middleware to resolve active tenant context dynamically (SaaS Multi-tenancy)
+const resolveTenant = (req, res, next) => {
+  let tenantId = req.headers['x-tenant-id'] || DEFAULT_TENANT_ID;
+
+  // Option to extract from JWT authorization bearer token if provided
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.split(' ')[1];
+      // Quick client-side decode to extract claims
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
+      if (payload && payload.tenant_id) {
+        tenantId = payload.tenant_id;
+      }
+    } catch (e) {
+      // Ignore token parse errors, fallback to header or default
+    }
+  }
+
+  req.tenantId = tenantId;
+  next();
+};
+
+app.use(resolveTenant);
+
 // Diagnostic Health Check
 app.get('/health', (req, res) => {
   res.json({
@@ -31,10 +58,11 @@ app.get('/health', (req, res) => {
 // Retrieve roadmaps
 app.get('/api/v1/roadmaps', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM roadmap.rm_roadmaps WHERE tenant_id = $1', [DEFAULT_TENANT_ID]);
+    const result = await pool.query('SELECT * FROM roadmap.rm_roadmaps WHERE tenant_id = $1', [req.tenantId]);
     res.json(result.rows);
   } catch (err) {
-    res.json(mockRoadmaps);
+    const tenantMockData = mockRoadmaps.filter(r => r.tenant_id === req.tenantId);
+    res.json(tenantMockData);
   }
 });
 
@@ -43,7 +71,7 @@ app.post('/api/v1/roadmaps', async (req, res) => {
   const { title, description, target_date } = req.body;
   const newRoadmap = {
     id: require('crypto').randomUUID(),
-    tenant_id: DEFAULT_TENANT_ID,
+    tenant_id: req.tenantId,
     title,
     description,
     target_date: target_date || '2024-12-31'

@@ -12,12 +12,23 @@ export default function Home() {
   const [ytMetrics, setYtMetrics] = useState(null);
   const [syncStatusMsg, setSyncStatusMsg] = useState('');
 
+  // Phase 4 Multi-Tenant SaaS Workspace Context Toggles
+  const [tenantContext, setTenantContext] = useState('00000000-0000-0000-0000-000000000000');
+  const [tenantLabel, setTenantContextLabel] = useState('Primary Creator');
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
   // Fetch core values from Gateway API
-  const loadData = async () => {
+  const loadData = async (activeTenant) => {
+    const currentTenant = activeTenant || tenantContext;
     try {
-      const resVideos = await fetch(`${API_URL}/api/v1/videos`);
+      // Pass the active tenant context using a secure Custom Header
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-Tenant-Id': currentTenant
+      };
+
+      const resVideos = await fetch(`${API_URL}/api/v1/videos`, { headers });
       if (resVideos.ok) {
         const data = await resVideos.json();
         setVideos(data);
@@ -25,33 +36,54 @@ export default function Home() {
         throw new Error('Content API unreachable');
       }
 
-      const resRoadmaps = await fetch(`${API_URL}/api/v1/roadmaps`);
+      const resRoadmaps = await fetch(`${API_URL}/api/v1/roadmaps`, { headers });
       if (resRoadmaps.ok) {
         const data = await resRoadmaps.json();
         setRoadmaps(data);
       }
 
-      const resYt = await fetch(`${API_URL}/api/v1/youtube/metrics`);
+      const resYt = await fetch(`${API_URL}/api/v1/youtube/metrics`, { headers });
       if (resYt.ok) {
         const data = await resYt.json();
         setYtMetrics(data);
       }
     } catch (err) {
-      // Fallback states for resilient operation when API gateway is booting up
-      const defaultVideos = [
-        { id: '1a9bc245-c800-4752-bd88-0214a19bc32a', title: 'Rise and Fall of Ancient Rome', status: 'published', description: 'Exploring Roman History and the socio-economic transitions.' },
-        { id: '28bc514d-91b3-4fec-88c9-021bc2498712', title: 'Secrets of Sparta Mythologies', status: 'research', description: 'Spartan militaristic and cultural values vs modern perception.' }
-      ];
-      const defaultRoadmaps = [
-        { id: '34bc98e1-da81-42ab-bd99-0129bc4897bc', title: 'Historical Dynasties series', description: 'Analyze major world civilisations chronologically.' }
-      ];
+      // Segregated resilient fallback schemas mapped dynamically based on selected tenant context
+      let defaultVideos = [];
+      let defaultRoadmaps = [];
+
+      if (currentTenant === '00000000-0000-0000-0000-000000000000') {
+        defaultVideos = [
+          { id: '1a9bc245-c800-4752-bd88-0214a19bc32a', title: 'Rise and Fall of Ancient Rome', status: 'published', description: 'Exploring Roman History and the socio-economic transitions.' },
+          { id: '28bc514d-91b3-4fec-88c9-021bc2498712', title: 'Secrets of Sparta Mythologies', status: 'research', description: 'Spartan militaristic and cultural values vs modern perception.' }
+        ];
+        defaultRoadmaps = [
+          { id: '34bc98e1-da81-42ab-bd99-0129bc4897bc', title: 'Historical Dynasties series', description: 'Analyze major world civilisations chronologically.' }
+        ];
+      } else if (currentTenant === '88888888-8888-8888-8888-888888888888') {
+        defaultVideos = [
+          { id: 'r1', title: 'Julius Caesar crossing Rubicon', status: 'scripting', description: 'The absolute transition of the Roman republic context.' }
+        ];
+        defaultRoadmaps = [
+          { id: 'r101', title: 'Roman Chronicles Enterprise', description: 'The complete rise of the Caesars.' }
+        ];
+      } else {
+        defaultVideos = [
+          { id: 'g1', title: 'Myth of the Minotaur Labyrinth', status: 'ideation', description: 'Exploring Minoan civilisations and subterranean structures.' }
+        ];
+        defaultRoadmaps = [
+          { id: 'g101', title: 'Greek Legends Enterprise', description: 'An ordered investigation into Aegean mythologies.' }
+        ];
+      }
+
       const defaultYt = {
         channel_id: 'UC_mock_channel_01',
-        subscriber_count: 142400,
-        total_views: 4892400,
+        subscriber_count: currentTenant === '00000000-0000-0000-0000-000000000000' ? 142400 : 25100,
+        total_views: currentTenant === '00000000-0000-0000-0000-000000000000' ? 4892400 : 920400,
         total_watch_time_minutes: 58245000,
         last_synced_at: new Date().toISOString()
       };
+
       setVideos(defaultVideos);
       setRoadmaps(defaultRoadmaps);
       setYtMetrics(defaultYt);
@@ -59,8 +91,20 @@ export default function Home() {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(tenantContext);
   }, []);
+
+  const handleTenantChange = (e) => {
+    const selected = e.target.value;
+    setTenantContext(selected);
+
+    let label = 'Primary Creator';
+    if (selected === '88888888-8888-8888-8888-888888888888') label = 'Roman Chronicles Brand';
+    if (selected === '99999999-9999-9999-9999-999999999999') label = 'Greek Legends Brand';
+
+    setTenantContextLabel(label);
+    loadData(selected);
+  };
 
   const handleAddVideo = async (e) => {
     e.preventDefault();
@@ -69,7 +113,10 @@ export default function Home() {
     try {
       const res = await fetch(`${API_URL}/api/v1/videos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Tenant-Id': tenantContext
+        },
         body: JSON.stringify({ title: newTitle, description: newDesc })
       });
 
@@ -86,6 +133,7 @@ export default function Home() {
       // Local addition fallback
       const mockNewVideo = {
         id: Math.random().toString(),
+        tenant_id: tenantContext,
         title: newTitle,
         description: newDesc,
         status: 'ideation'
@@ -102,7 +150,10 @@ export default function Home() {
     try {
       const res = await fetch(`${API_URL}/api/v1/youtube/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Tenant-Id': tenantContext
+        }
       });
       if (res.ok) {
         const data = await res.json();
@@ -131,16 +182,30 @@ export default function Home() {
   return (
     <div style={{ fontFamily: '"Inter", system-ui, -apple-system, sans-serif', padding: '0', backgroundColor: '#0f172a', minHeight: '100vh', color: '#f8fafc' }}>
 
-      {/* Premium Header */}
+      {/* Premium Header with SaaS Tenant Switcher */}
       <header style={{ borderBottom: '1px solid #1e293b', padding: '20px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#1e293b' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '24px', fontWeight: '800', letterSpacing: '-0.025em', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span>⚡</span> CIP Admin Command Center
           </h1>
-          <p style={{ margin: '4px 0 0 0', color: '#94a3b8', fontSize: '13px' }}>Content Intelligence Platform • Phase 1 & 2 Command Suite</p>
+          <p style={{ margin: '4px 0 0 0', color: '#94a3b8', fontSize: '13px' }}>Content Intelligence Platform • Phase 4 SaaS Workspace Suite</p>
         </div>
-        <div style={{ backgroundColor: '#0f172a', border: '1px solid #334155', padding: '8px 16px', borderRadius: '30px', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.05em', color: '#38bdf8' }}>
-          WORK-UNIT: DEFAULT_TENANT_0001
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 'bold', textTransform: 'uppercase' }}>Scope:</span>
+            <select
+              value={tenantContext}
+              onChange={handleTenantChange}
+              style={{ backgroundColor: '#0f172a', border: '1px solid #334155', color: '#38bdf8', padding: '8px 16px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+              <option value="00000000-0000-0000-0000-000000000000">Primary Creator Workspace</option>
+              <option value="88888888-8888-8888-8888-888888888888">Roman Chronicles Brand</option>
+              <option value="99999999-9999-9999-9999-999999999999">Greek Legends Brand</option>
+            </select>
+          </div>
+          <div style={{ backgroundColor: '#0f172a', border: '1px solid #334155', padding: '8px 16px', borderRadius: '30px', fontSize: '12px', fontWeight: 'bold', letterSpacing: '0.05em', color: '#e2e8f0' }}>
+            ACTIVE BRAND: {tenantLabel.toUpperCase()}
+          </div>
         </div>
       </header>
 
@@ -194,19 +259,19 @@ export default function Home() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>
                     <span style={{ color: '#cbd5e1' }}>Temple Heritage Pillar</span>
-                    <span style={{ color: '#10b981' }}>82% Covered</span>
+                    <span style={{ color: '#10b981' }}>{tenantContext === '00000000-0000-0000-0000-000000000000' ? '82%' : '44%'} Covered</span>
                   </div>
                   <div style={{ height: '8px', backgroundColor: '#1e293b', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{ width: '82%', height: '100%', backgroundColor: '#10b981' }}></div>
+                    <div style={{ width: tenantContext === '00000000-0000-0000-0000-000000000000' ? '82%' : '44%', height: '100%', backgroundColor: '#10b981' }}></div>
                   </div>
                 </div>
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>
                     <span style={{ color: '#cbd5e1' }}>Ancient Wisdom Pillar</span>
-                    <span style={{ color: '#f43f5e' }}>11% Covered</span>
+                    <span style={{ color: '#f43f5e' }}>{tenantContext === '00000000-0000-0000-0000-000000000000' ? '11%' : '90%'} Covered</span>
                   </div>
                   <div style={{ height: '8px', backgroundColor: '#1e293b', borderRadius: '4px', overflow: 'hidden' }}>
-                    <div style={{ width: '11%', height: '100%', backgroundColor: '#f43f5e' }}></div>
+                    <div style={{ width: tenantContext === '00000000-0000-0000-0000-000000000000' ? '11%' : '90%', height: '100%', backgroundColor: '#f43f5e' }}></div>
                   </div>
                 </div>
               </div>
@@ -218,7 +283,11 @@ export default function Home() {
                   <span style={{ color: '#34d399' }}>💡</span> Strategic Advice:
                 </p>
                 <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: '#cbd5e1' }}>
-                  Your <strong>Ancient Wisdom</strong> roadmap track is falling behind schedule. Delay the Temple Heritage draft and outline an <strong>Ancient Wisdom</strong> script concept immediately to capture peak viewer seasonal interest.
+                  {tenantContext === '00000000-0000-0000-0000-000000000000' ? (
+                    "Your Ancient Wisdom roadmap track is falling behind schedule. Delay the Temple Heritage draft and outline an Ancient Wisdom script concept immediately."
+                  ) : (
+                    "Your brand engagement indicators are highly strong! Greek and Roman entity mappings are completely balanced across active drafts."
+                  )}
                 </p>
               </div>
             </div>

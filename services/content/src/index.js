@@ -20,6 +20,33 @@ const pool = new Pool({
   connectionTimeoutMillis: 2000
 });
 
+// Middleware to resolve active tenant context dynamically (SaaS Multi-tenancy)
+const resolveTenant = (req, res, next) => {
+  let tenantId = req.headers['x-tenant-id'] || DEFAULT_TENANT_ID;
+
+  // Option to extract from JWT authorization bearer token if provided
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.split(' ')[1];
+      // Quick client-side decode to extract claims
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
+      if (payload && payload.tenant_id) {
+        tenantId = payload.tenant_id;
+      }
+    } catch (e) {
+      // Ignore token parse errors, fallback to header or default
+    }
+  }
+
+  req.tenantId = tenantId;
+  next();
+};
+
+app.use(resolveTenant);
+
 // Diagnostic Health endpoint
 app.get('/health', (req, res) => {
   res.json({
@@ -34,7 +61,7 @@ app.get('/api/v1/videos', async (req, res) => {
   try {
     const { status } = req.query;
     let queryStr = 'SELECT * FROM content.ct_videos WHERE tenant_id = $1';
-    let params = [DEFAULT_TENANT_ID];
+    let params = [req.tenantId];
 
     if (status) {
       queryStr += ' AND status = $2';
@@ -46,9 +73,11 @@ app.get('/api/v1/videos', async (req, res) => {
   } catch (err) {
     // Return mock fallback resilient state if DB not populated yet
     const { status } = req.query;
-    let filtered = mockVideos;
+    // Filter mock data based on active tenant
+    const tenantMockData = mockVideos.filter(v => v.tenant_id === req.tenantId);
+    let filtered = tenantMockData;
     if (status) {
-      filtered = mockVideos.filter(v => v.status === status);
+      filtered = tenantMockData.filter(v => v.status === status);
     }
     res.json(filtered);
   }
@@ -59,7 +88,7 @@ app.post('/api/v1/videos', async (req, res) => {
   const { title, description } = req.body;
   const newVideo = {
     id: require('crypto').randomUUID(),
-    tenant_id: DEFAULT_TENANT_ID,
+    tenant_id: req.tenantId,
     title,
     description,
     status: 'ideation'

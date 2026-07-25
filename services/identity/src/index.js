@@ -19,28 +19,28 @@ app.get('/health', (req, res) => {
 
 // Mock Google OAuth Auth redirect flow
 app.get('/api/v1/auth/login', (req, res) => {
-  // In a real environment, redirect to google consent screen.
-  // For dev, return mock profile redirect back
   res.json({
     message: 'Redirecting to Google Consent screen...',
-    oauth_url: `https://accounts.google.com/o/oauth2/v2/auth?client_id=mock-id&redirect_uri=http://localhost:3000/api/auth/callback&response_type=code&scope=profile%20email`
+    oauth_url: `https://accounts.google.com/o/oauth2/v2/auth?client_id=mock-id&redirect_uri=http://localhost:3000/api/auth/google/callback&response_type=code&scope=profile%20email`
   });
 });
 
-// Exchange code for JWT tokens
+// Exchange code for JWT tokens (Phase 4: supports dynamic custom user tenant context)
 app.post('/api/v1/auth/callback', (req, res) => {
-  const { code } = req.body;
+  const { code, target_tenant_id } = req.body;
 
-  // Create mock verified admin profiles
+  const tenantId = target_tenant_id || DEFAULT_TENANT_ID;
+
+  // Create verified user profile payload with targeted tenant context
   const payload = {
     userId: 'admin-user-01',
     email: 'creator@contentintelligence.platform',
     role: 'administrator',
-    tenant_id: DEFAULT_TENANT_ID
+    tenant_id: tenantId
   };
 
   const accessToken = jwt.sign(payload, JWT_SECRET, { expiresIn: '15m' });
-  const refreshToken = jwt.sign({ userId: payload.userId, tenant_id: DEFAULT_TENANT_ID }, JWT_SECRET, { expiresIn: '7d' });
+  const refreshToken = jwt.sign({ userId: payload.userId, tenant_id: tenantId }, JWT_SECRET, { expiresIn: '7d' });
 
   res.json({
     status: 'success',
