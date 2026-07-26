@@ -105,6 +105,11 @@ const assertAndConsumeQuota = (unitsNeeded) => {
   return dailyQuotaUsed;
 };
 
+// Original Google configuration variables in service state
+let globalGoogleClientId = process.env.GOOGLE_CLIENT_ID || 'mock_google_client_id_01';
+let globalGoogleClientSecret = process.env.GOOGLE_CLIENT_SECRET || 'mock_google_client_secret_99';
+let globalGoogleAccessToken = '';
+
 // Retrieve active quota consumption limits
 app.get('/api/v1/youtube/quota', (req, res) => {
   res.json({
@@ -114,6 +119,26 @@ app.get('/api/v1/youtube/quota', (req, res) => {
       limit: DAILY_QUOTA_CEILING,
       remaining: DAILY_QUOTA_CEILING - dailyQuotaUsed,
       percentUsed: Number(((dailyQuotaUsed / DAILY_QUOTA_CEILING) * 100).toFixed(2))
+    }
+  });
+});
+
+// Endpoint to dynamically alter original Google variables from UI Settings panel
+app.post('/api/v1/youtube/config', (req, res) => {
+  const { clientId, clientSecret, accessToken } = req.body;
+  if (clientId) globalGoogleClientId = clientId.trim();
+  if (clientSecret) globalGoogleClientSecret = clientSecret.trim();
+  if (accessToken) globalGoogleAccessToken = accessToken.trim();
+
+  console.log(`[Youtube-Sync Config] Original variables dynamically updated: ClientID (${globalGoogleClientId.substring(0, 10)}...), Secret update: ${!!clientSecret}, AccessToken update: ${!!accessToken}`);
+
+  res.json({
+    success: true,
+    message: 'Original Google API credentials dynamically altered in youtube-sync-service state.',
+    config: {
+      clientId: `${globalGoogleClientId.substring(0, 10)}...`,
+      hasSecret: !!globalGoogleClientSecret,
+      hasAccessToken: !!globalGoogleAccessToken
     }
   });
 });
@@ -214,19 +239,22 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
     });
   }
 
-  // Extract custom Google OAuth parameters from UI-provided headers
-  const userClientId = req.headers['x-google-client-id'];
-  const userClientSecret = req.headers['x-google-client-secret'];
-  const userAccessToken = req.headers['x-google-access-token'];
+  // Extract custom Google OAuth parameters from UI-provided headers or resolve from dynamically altered original variables
+  const userClientId = req.headers['x-google-client-id'] || globalGoogleClientId;
+  const userClientSecret = req.headers['x-google-client-secret'] || globalGoogleClientSecret;
+  const userAccessToken = req.headers['x-google-access-token'] || globalGoogleAccessToken;
 
-  // Check if custom dynamic OAuth keys + active session access tokens are provided
+  // Check if custom dynamic OAuth keys + active session access tokens are provided (not mock defaults)
   const isProdCredentials = userClientId && userClientSecret && userAccessToken &&
                             !userClientId.startsWith('mock_') &&
                             !userClientSecret.startsWith('mock_') &&
-                            !userAccessToken.startsWith('mock_');
+                            !userAccessToken.startsWith('mock_') &&
+                            userClientId.trim() !== '' &&
+                            userClientSecret.trim() !== '' &&
+                            userAccessToken.trim() !== '';
 
   if (!isProdCredentials) {
-    console.log('Using simulated developmental YouTube analytics response...');
+    console.log(`Using simulated developmental YouTube analytics response. Reason: isProdCredentials is false (Client: ${userClientId.substring(0, 8)}..., Secret length: ${userClientSecret ? userClientSecret.length : 0}, Token length: ${userAccessToken ? userAccessToken.length : 0})`);
     const updatedMetrics = {
       sync_id: require('crypto').randomUUID(),
       tenant_id: DEFAULT_TENANT_ID,
@@ -257,7 +285,7 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
 
   // Live production Google API Client Flow using user credentials provided from the Admin Settings
   try {
-    console.log('Dynamic Google API credentials and active Access Token detected. Initializing OAuth2 client...');
+    console.log(`Dynamic Google API credentials and active Access Token resolved. Initializing OAuth2 client with ClientID: ${userClientId.substring(0, 15)}...`);
 
     const customOauth2Client = new google.auth.OAuth2(
       userClientId,

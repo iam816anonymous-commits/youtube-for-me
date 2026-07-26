@@ -15,16 +15,35 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Generate Vector Embeddings (Supports real-time requests to OpenAI when key is provided via UI headers)
+// Original OpenAI configuration variables in service state
+let globalOpenaiApiKey = '';
+
+// Endpoint to dynamically alter original OpenAI variables from UI Settings panel
+app.post('/api/v1/ai/config', (req, res) => {
+  const { apiKey } = req.body;
+  if (apiKey) globalOpenaiApiKey = apiKey.trim();
+
+  console.log(`[AI-Service Config] Original variables dynamically updated: OpenAI key updated: ${!!apiKey}`);
+
+  res.json({
+    success: true,
+    message: 'Original OpenAI API credentials dynamically altered in ai-service state.',
+    config: {
+      hasApiKey: !!globalOpenaiApiKey
+    }
+  });
+});
+
+// Generate Vector Embeddings (Supports real-time requests to OpenAI when key is provided via UI headers or resolved globally)
 app.post('/api/v1/ai/embeddings', async (req, res) => {
   const { text } = req.body;
   if (!text) {
     return res.status(400).json({ error: 'Missing input text parameter' });
   }
 
-  const userApiKey = req.headers['x-openai-key'];
+  const userApiKey = req.headers['x-openai-key'] || globalOpenaiApiKey;
 
-  if (userApiKey && !userApiKey.startsWith('mock_')) {
+  if (userApiKey && !userApiKey.startsWith('mock_') && userApiKey.trim() !== '') {
     try {
       console.log('Real-time OpenAI API Key found in request headers. Querying OpenAI API v1/embeddings...');
       // Dynamic real-time fetch to official OpenAI endpoint using native node fetch (or global fetch)

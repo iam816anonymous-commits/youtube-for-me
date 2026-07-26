@@ -177,7 +177,7 @@ export default function Home() {
     }
   };
 
-  const saveApiCredentials = (e) => {
+  const saveApiCredentials = async (e) => {
     e.preventDefault();
     if (typeof window !== 'undefined') {
       localStorage.setItem('CIP_OPENAI_API_KEY', openaiApiKey);
@@ -186,7 +186,33 @@ export default function Home() {
       localStorage.setItem('CIP_GOOGLE_ACCESS_TOKEN', googleAccessToken);
       localStorage.setItem('CIP_DATABASE_URL', dbConnString);
     }
-    setConfigSuccessMsg('Platform API credentials and dynamic headers successfully saved!');
+
+    // Dynamic propagation: POST new values directly to the microservice original variables memory states
+    try {
+      await fetch(`${API_URL}/api/v1/youtube/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: googleClientId,
+          clientSecret: googleClientSecret,
+          accessToken: googleAccessToken
+        })
+      });
+
+      await fetch(`${API_URL}/api/v1/ai/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey: openaiApiKey
+        })
+      });
+
+      console.log('[Dynamic Config] Successfully synced UI changes to backend original variables.');
+    } catch (err) {
+      console.warn('[Dynamic Config] Sync warning: Backend config routes unreachable, local state active.');
+    }
+
+    setConfigSuccessMsg('Platform API credentials saved and dynamically propagated to original backend service variables!');
     loadData(tenantContext);
     setTimeout(() => setConfigSuccessMsg(''), 4000);
   };
