@@ -36,6 +36,21 @@ let customSchemaMetadata = [
   }
 ];
 
+// Whitelist of valid data types to completely avoid SQL injection vectors
+const VALID_TYPES_WHITELIST = [
+  'VARCHAR(255)',
+  'INTEGER',
+  'BOOLEAN',
+  'TIMESTAMP',
+  'TEXT',
+  'UUID'
+];
+
+// Sanitize strings to contain only safe alphanumeric characters and underscores
+const isValidSqlName = (str) => {
+  return /^[a-zA-Z][a-zA-Z0-9_]*$/.test(str);
+};
+
 // List current active custom schemas
 app.get('/api/v1/schemas', (req, res) => {
   res.json({
@@ -46,7 +61,7 @@ app.get('/api/v1/schemas', (req, res) => {
   });
 });
 
-// Create or alter physical database schemas dynamically
+// Create or alter physical database schemas dynamically with rigid validation filters
 app.post('/api/v1/schemas', async (req, res) => {
   const { tableName, action, fields } = req.body; // action: 'CREATE' | 'ADD_COLUMN'
 
@@ -55,6 +70,15 @@ app.post('/api/v1/schemas', async (req, res) => {
       success: false,
       data: null,
       errors: [{ code: 'INVALID_PARAMETERS', message: 'tableName and action are required' }]
+    });
+  }
+
+  // 1. Sanitize Table Name
+  if (!isValidSqlName(tableName)) {
+    return res.status(400).json({
+      success: false,
+      data: null,
+      errors: [{ code: 'INVALID_TABLE_NAME', message: 'Table name must consist of valid alphanumeric characters starting with a letter.' }]
     });
   }
 
@@ -70,8 +94,26 @@ app.post('/api/v1/schemas', async (req, res) => {
         });
       }
 
+      // Validate each field name and type individually to block SQL injection
+      for (const f of fields) {
+        if (!isValidSqlName(f.name)) {
+          return res.status(400).json({
+            success: false,
+            data: null,
+            errors: [{ code: 'INVALID_COLUMN_NAME', message: `Column name "${f.name}" is invalid.` }]
+          });
+        }
+        if (!VALID_TYPES_WHITELIST.includes(f.type.toUpperCase())) {
+          return res.status(400).json({
+            success: false,
+            data: null,
+            errors: [{ code: 'UNAUTHORIZED_COLUMN_TYPE', message: `Data type "${f.type}" is unauthorized.` }]
+          });
+        }
+      }
+
       const columnDefs = fields.map(f => {
-        let def = `${f.name} ${f.type}`;
+        let def = `${f.name} ${f.type.toUpperCase()}`;
         if (f.primary) def += ' PRIMARY KEY';
         return def;
       }).join(', ');
@@ -94,7 +136,24 @@ app.post('/api/v1/schemas', async (req, res) => {
       }
 
       const targetField = fields[0];
-      ddlQuery = `ALTER TABLE public.${tableName} ADD COLUMN IF NOT EXISTS ${targetField.name} ${targetField.type};`;
+
+      // Validate column name and type
+      if (!isValidSqlName(targetField.name)) {
+        return res.status(400).json({
+          success: false,
+          data: null,
+          errors: [{ code: 'INVALID_COLUMN_NAME', message: `Column name "${targetField.name}" is invalid.` }]
+        });
+      }
+      if (!VALID_TYPES_WHITELIST.includes(targetField.type.toUpperCase())) {
+        return res.status(400).json({
+          success: false,
+          data: null,
+          errors: [{ code: 'UNAUTHORIZED_COLUMN_TYPE', message: `Data type "${targetField.type}" is unauthorized.` }]
+        });
+      }
+
+      ddlQuery = `ALTER TABLE public.${tableName} ADD COLUMN IF NOT EXISTS ${targetField.name} ${targetField.type.toUpperCase()};`;
 
       // Update in-memory metadata registry
       const existing = customSchemaMetadata.find(s => s.tableName === tableName);
@@ -110,10 +169,9 @@ app.post('/api/v1/schemas', async (req, res) => {
 
     let isMockSimulated = false;
     try {
-      // Execute query on Postgres physically
+      // Execute sanitized query safely
       await pool.query(ddlQuery);
     } catch (dbErr) {
-      // Graceful offline mock fallback
       console.warn(`[Schema Manager DB Warning] Master DB offline. Query simulated in-memory. SQL Preview: ${ddlQuery}`);
       isMockSimulated = true;
     }

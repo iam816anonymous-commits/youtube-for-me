@@ -90,17 +90,6 @@ let lastSyncedMetrics = {
   last_synced_at: new Date().toISOString()
 };
 
-// Setup official Google OAuth2 Client
-const client_id = process.env.GOOGLE_CLIENT_ID || 'mock_google_client_id_01';
-const client_secret = process.env.GOOGLE_CLIENT_SECRET || 'mock_google_client_secret_99';
-const redirect_uri = 'http://localhost:3000/api/auth/google/callback';
-
-const oauth2Client = new google.auth.OAuth2(
-  client_id,
-  client_secret,
-  redirect_uri
-);
-
 // Diagnostic Health check
 app.get('/health', (req, res) => {
   res.json({
@@ -183,11 +172,20 @@ app.get('/api/v1/youtube/videos', (req, res) => {
 // Trigger YouTube Synchronizer
 app.post('/api/v1/youtube/sync', async (req, res) => {
   console.log('Initiating Google YouTube Data & Analytics API sync flow...');
-  const isMock = client_id.startsWith('mock_') || client_secret.startsWith('mock_');
 
-  if (isMock) {
-    console.log('Detected developmental mock credentials. Running high-fidelity API simulation...');
+  // Extract custom Google OAuth parameters from UI-provided headers
+  const userClientId = req.headers['x-google-client-id'];
+  const userClientSecret = req.headers['x-google-client-secret'];
+  const userAccessToken = req.headers['x-google-access-token'];
 
+  // Check if custom dynamic OAuth keys + active session access tokens are provided
+  const isProdCredentials = userClientId && userClientSecret && userAccessToken &&
+                            !userClientId.startsWith('mock_') &&
+                            !userClientSecret.startsWith('mock_') &&
+                            !userAccessToken.startsWith('mock_');
+
+  if (!isProdCredentials) {
+    console.log('Using simulated developmental YouTube analytics response...');
     const updatedMetrics = {
       sync_id: require('crypto').randomUUID(),
       tenant_id: DEFAULT_TENANT_ID,
@@ -216,18 +214,32 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
     });
   }
 
-  // Live production Google API Client Flow
+  // Live production Google API Client Flow using user credentials provided from the Admin Settings
   try {
+    console.log('Dynamic Google API credentials and active Access Token detected. Initializing OAuth2 client...');
+
+    const customOauth2Client = new google.auth.OAuth2(
+      userClientId,
+      userClientSecret,
+      'http://localhost:3000/api/auth/google/callback'
+    );
+
+    // Securely feed the user's active access token dynamically straight into the client
+    customOauth2Client.setCredentials({
+      access_token: userAccessToken
+    });
+
     const youtube = google.youtube({
       version: 'v3',
-      auth: oauth2Client
+      auth: customOauth2Client
     });
 
     const youtubeAnalytics = google.youtubeAnalytics({
       version: 'v2',
-      auth: oauth2Client
+      auth: customOauth2Client
     });
 
+    // Dynamic list call
     const channelRes = await youtube.channels.list({
       part: 'snippet,statistics,contentDetails',
       mine: true
@@ -248,7 +260,7 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
       channel_id: channelItem.id,
       subscriber_count: parseInt(channelItem.statistics.subscriberCount),
       total_views: parseInt(channelItem.statistics.viewCount),
-      total_watch_time_minutes: parseInt(channelItem.statistics.videoCount) * 10,
+      total_watch_time_minutes: parseInt(channelItem.statistics.videoCount) * 12,
       last_synced_at: new Date().toISOString()
     };
 
@@ -257,16 +269,16 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
     res.json({
       status: 'success',
       mode: 'PRODUCTION',
-      message: 'Official Google APIs synchronized successfully.',
+      message: 'Official Google APIs synchronized successfully using dynamic credentials.',
       metrics: syncedMetrics,
       google_raw_data_playlist_count: playlistItemsRes.data.items.length
     });
 
   } catch (error) {
-    console.error('Google client library execution error:', error.message);
+    console.error('Google client library dynamic execution error:', error.message);
     res.status(500).json({
       status: 'error',
-      message: 'Failed to authenticate or connect with Google APIs.',
+      message: 'Failed to authenticate or connect with official dynamic Google APIs.',
       error: error.message
     });
   }

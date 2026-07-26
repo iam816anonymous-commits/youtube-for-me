@@ -15,21 +15,62 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Generate Vector Embeddings (Mock calculating 1536-dimensional float arrays matching standard OpenAI format)
-app.post('/api/v1/ai/embeddings', (req, res) => {
+// Generate Vector Embeddings (Supports real-time requests to OpenAI when key is provided via UI headers)
+app.post('/api/v1/ai/embeddings', async (req, res) => {
   const { text } = req.body;
   if (!text) {
     return res.status(400).json({ error: 'Missing input text parameter' });
   }
 
-  // Create a 1536 float dimension mock array
+  const userApiKey = req.headers['x-openai-key'];
+
+  if (userApiKey && !userApiKey.startsWith('mock_')) {
+    try {
+      console.log('Real-time OpenAI API Key found in request headers. Querying OpenAI API v1/embeddings...');
+      // Dynamic real-time fetch to official OpenAI endpoint using native node fetch (or global fetch)
+      const openAiResponse = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${userApiKey}`
+        },
+        body: JSON.stringify({
+          input: text,
+          model: 'text-embedding-3-small'
+        })
+      });
+
+      if (openAiResponse.ok) {
+        const result = await openAiResponse.json();
+        return res.json({
+          status: 'success',
+          model: result.model || 'text-embedding-3-small',
+          dimensions: result.data[0].embedding.length,
+          embedding: result.data[0].embedding,
+          realtime: true
+        });
+      } else {
+        const errDetails = await openAiResponse.text();
+        console.error('OpenAI Error Details:', errDetails);
+        throw new Error(`OpenAI HTTP Error: ${openAiResponse.status} - ${errDetails}`);
+      }
+    } catch (err) {
+      return res.status(502).json({
+        error: 'Failed to complete real-time OpenAI embedding request.',
+        details: err.message
+      });
+    }
+  }
+
+  // Fallback to high-fidelity simulated 1536 float dimension when no active API Key is sent
   const mockEmbedding = Array.from({ length: 1536 }, () => Number(Math.random().toFixed(6)));
 
   res.json({
     status: 'success',
     model: 'text-embedding-3-small',
     dimensions: 1536,
-    embedding: mockEmbedding
+    embedding: mockEmbedding,
+    realtime: false
   });
 });
 

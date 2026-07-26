@@ -30,7 +30,26 @@ export default function Home() {
   const [selectedSchemaAction, setSelectedSchemaAction] = useState('CREATE');
   const [schemaSuccessMsg, setSchemaSuccessMsg] = useState('');
 
+  // Platform API Configuration States (localStorage persistence)
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [googleClientSecret, setGoogleClientSecret] = useState('');
+  const [googleAccessToken, setGoogleAccessToken] = useState('');
+  const [dbConnString, setDbConnString] = useState('');
+  const [configSuccessMsg, setConfigSuccessMsg] = useState('');
+
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+  // Load configuration credentials from browser localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOpenaiApiKey(localStorage.getItem('CIP_OPENAI_API_KEY') || '');
+      setGoogleClientId(localStorage.getItem('CIP_GOOGLE_CLIENT_ID') || '');
+      setGoogleClientSecret(localStorage.getItem('CIP_GOOGLE_CLIENT_SECRET') || '');
+      setGoogleAccessToken(localStorage.getItem('CIP_GOOGLE_ACCESS_TOKEN') || '');
+      setDbConnString(localStorage.getItem('CIP_DATABASE_URL') || '');
+    }
+  }, []);
 
   // Fetch core values from Gateway API
   const loadData = async (activeTenant) => {
@@ -38,7 +57,11 @@ export default function Home() {
     try {
       const headers = {
         'Content-Type': 'application/json',
-        'X-Tenant-Id': currentTenant
+        'X-Tenant-Id': currentTenant,
+        'X-OpenAI-Key': localStorage.getItem('CIP_OPENAI_API_KEY') || '',
+        'X-Google-Client-Id': localStorage.getItem('CIP_GOOGLE_CLIENT_ID') || '',
+        'X-Google-Client-Secret': localStorage.getItem('CIP_GOOGLE_CLIENT_SECRET') || '',
+        'X-Google-Access-Token': localStorage.getItem('CIP_GOOGLE_ACCESS_TOKEN') || ''
       };
 
       const resVideos = await fetch(`${API_URL}/api/v1/videos`, { headers });
@@ -144,9 +167,37 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
+  const saveApiCredentials = (e) => {
+    e.preventDefault();
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('CIP_OPENAI_API_KEY', openaiApiKey);
+      localStorage.setItem('CIP_GOOGLE_CLIENT_ID', googleClientId);
+      localStorage.setItem('CIP_GOOGLE_CLIENT_SECRET', googleClientSecret);
+      localStorage.setItem('CIP_GOOGLE_ACCESS_TOKEN', googleAccessToken);
+      localStorage.setItem('CIP_DATABASE_URL', dbConnString);
+    }
+    setConfigSuccessMsg('Platform API credentials and dynamic headers successfully saved!');
     loadData(tenantContext);
-  }, []);
+    setTimeout(() => setConfigSuccessMsg(''), 4000);
+  };
+
+  const clearApiCredentials = () => {
+    setOpenaiApiKey('');
+    setGoogleClientId('');
+    setGoogleClientSecret('');
+    setGoogleAccessToken('');
+    setDbConnString('');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('CIP_OPENAI_API_KEY');
+      localStorage.removeItem('CIP_GOOGLE_CLIENT_ID');
+      localStorage.removeItem('CIP_GOOGLE_CLIENT_SECRET');
+      localStorage.removeItem('CIP_GOOGLE_ACCESS_TOKEN');
+      localStorage.removeItem('CIP_DATABASE_URL');
+    }
+    setConfigSuccessMsg('API credentials cleared from storage.');
+    loadData(tenantContext);
+    setTimeout(() => setConfigSuccessMsg(''), 4000);
+  };
 
   const handleTenantChange = (e) => {
     const selected = e.target.value;
@@ -169,7 +220,8 @@ export default function Home() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Tenant-Id': tenantContext
+          'X-Tenant-Id': tenantContext,
+          'X-OpenAI-Key': localStorage.getItem('CIP_OPENAI_API_KEY') || ''
         },
         body: JSON.stringify({ title: newTitle, description: newDesc })
       });
@@ -206,13 +258,16 @@ export default function Home() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Tenant-Id': tenantContext
+          'X-Tenant-Id': tenantContext,
+          'X-Google-Client-Id': localStorage.getItem('CIP_GOOGLE_CLIENT_ID') || '',
+          'X-Google-Client-Secret': localStorage.getItem('CIP_GOOGLE_CLIENT_SECRET') || '',
+          'X-Google-Access-Token': localStorage.getItem('CIP_GOOGLE_ACCESS_TOKEN') || ''
         }
       });
       if (res.ok) {
         const data = await res.json();
         setYtMetrics(data.metrics);
-        setSyncStatusMsg('YouTube data successfully synchronized!');
+        setSyncStatusMsg(`YouTube data successfully synchronized! [Mode: ${data.mode}]`);
         setTimeout(() => setSyncStatusMsg(''), 4000);
       } else {
         throw new Error('Sync fail');
@@ -415,6 +470,95 @@ export default function Home() {
       </header>
 
       <div style={{ padding: '32px 40px', maxWidth: '1440px', margin: '0 auto' }}>
+
+        {/* Real-Time APIs Credentials Configuration Setting HUD */}
+        <section style={{ backgroundColor: '#1e293b', border: '1px solid #38bdf8', borderLeftWidth: '6px', padding: '24px', borderRadius: '12px', marginBottom: '32px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3)' }}>
+          <h3 style={{ marginTop: 0, marginBottom: '12px', fontSize: '16px', fontWeight: '800', color: '#38bdf8', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            🔑 Platform Configuration & Real-Time API Credentials
+          </h3>
+          <p style={{ margin: '0 0 20px 0', color: '#94a3b8', fontSize: '13px', lineHeight: '1.5' }}>
+            Set real-time API credentials dynamically. Configuring these keys automatically replaces fallback simulated lists with production REST integrations targeting official OpenAI and Google API endpoints.
+          </p>
+
+          <form onSubmit={saveApiCredentials} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', alignItems: 'end' }}>
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+              OpenAI API Key
+              <input
+                type="password"
+                placeholder="sk-proj-..."
+                value={openaiApiKey}
+                onChange={(e) => setOpenaiApiKey(e.target.value)}
+                style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+              />
+            </label>
+
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+              Google Client ID
+              <input
+                type="text"
+                placeholder="Google OAuth Client ID"
+                value={googleClientId}
+                onChange={(e) => setGoogleClientId(e.target.value)}
+                style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+              />
+            </label>
+
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+              Google Client Secret
+              <input
+                type="password"
+                placeholder="Google Client Secret"
+                value={googleClientSecret}
+                onChange={(e) => setGoogleClientSecret(e.target.value)}
+                style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+              />
+            </label>
+
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+              Google Access Token
+              <input
+                type="password"
+                placeholder="ya29.a0Af..."
+                value={googleAccessToken}
+                onChange={(e) => setGoogleAccessToken(e.target.value)}
+                style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+              />
+            </label>
+
+            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+              Database Connection URL
+              <input
+                type="text"
+                placeholder="postgresql://..."
+                value={dbConnString}
+                onChange={(e) => setDbConnString(e.target.value)}
+                style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+              />
+            </label>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="submit"
+                style={{ padding: '11px 16px', backgroundColor: '#38bdf8', color: '#0f172a', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px', flex: 1 }}
+              >
+                Save Keys
+              </button>
+              <button
+                type="button"
+                onClick={clearApiCredentials}
+                style={{ padding: '11px 16px', backgroundColor: '#111827', border: '1px solid #334155', color: '#cbd5e1', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px' }}
+              >
+                Clear
+              </button>
+            </div>
+          </form>
+
+          {configSuccessMsg && (
+            <div style={{ marginTop: '16px', padding: '10px', backgroundColor: '#022c22', borderLeft: '3px solid #10b981', color: '#a7f3d0', fontSize: '12px', borderRadius: '0 6px 6px 0' }}>
+              {configSuccessMsg}
+            </div>
+          )}
+        </section>
 
         {/* YouTube Analytics Real-Time Stats Card */}
         {ytMetrics && (
