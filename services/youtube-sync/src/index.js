@@ -1,16 +1,68 @@
 const express = require('express');
 const { google } = require('googleapis');
 const { Pool } = require('pg');
+const crypto = require('crypto');
 
-const app = express();
+// 1. Startup Configuration & Environment Validation
 const PORT = process.env.PORT || 8086;
+const DATABASE_URL = process.env.DATABASE_URL;
 const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || '00000000-0000-0000-0000-000000000000';
 
+if (!DATABASE_URL) {
+  console.warn(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'WARN',
+    service: 'youtube-sync-service',
+    message: 'Configuration Warning: DATABASE_URL is missing. Operating in simulated fallback mode.'
+  }));
+}
+
+// 2. Structured JSON Logger Helper
+const log = (level, message, correlationId = '', meta = {}) => {
+  console.log(JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level,
+    service: 'youtube-sync-service',
+    message,
+    correlation_id: correlationId,
+    ...meta
+  }));
+};
+
+const app = express();
 app.use(express.json());
+
+// 3. Request Tracing / Correlation ID Middleware
+app.use((req, res, next) => {
+  const correlationId = req.headers['x-correlation-id'] || req.headers['x-request-id'] || crypto.randomUUID();
+  req.correlationId = correlationId;
+  res.setHeader('X-Correlation-Id', correlationId);
+  next();
+});
+
+// Request logger middleware
+app.use((req, res, next) => {
+  log('INFO', `Incoming Request: ${req.method} ${req.url}`, req.correlationId);
+  next();
+});
+
+// Standardized Response Helper
+const sendResponse = (res, statusCode, success, data = null, meta = {}, errors = []) => {
+  res.status(statusCode).json({
+    success,
+    data,
+    meta: {
+      ...meta,
+      timestamp: new Date().toISOString(),
+      correlation_id: res.get('X-Correlation-Id')
+    },
+    errors
+  });
+};
 
 // Set up connection to DB
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: DATABASE_URL,
   max: 5,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000
@@ -92,7 +144,7 @@ let lastSyncedMetrics = {
 
 // YouTube Data API Quota & Usage State Ledger
 let dailyQuotaUsed = 120; // Starts at seed usage, capped strictly at 10,000 units
-const DAILY_QUOTA_CEILING = 10,000;
+const DAILY_QUOTA_CEILING = 10000;
 
 // Dynamic check and increment function to strictly enforce quota ceilings
 const assertAndConsumeQuota = (unitsNeeded) => {
@@ -112,14 +164,11 @@ let globalGoogleAccessToken = '';
 
 // Retrieve active quota consumption limits
 app.get('/api/v1/youtube/quota', (req, res) => {
-  res.json({
-    success: true,
-    data: {
-      used: dailyQuotaUsed,
-      limit: DAILY_QUOTA_CEILING,
-      remaining: DAILY_QUOTA_CEILING - dailyQuotaUsed,
-      percentUsed: Number(((dailyQuotaUsed / DAILY_QUOTA_CEILING) * 100).toFixed(2))
-    }
+  sendResponse(res, 200, true, {
+    used: dailyQuotaUsed,
+    limit: DAILY_QUOTA_CEILING,
+    remaining: DAILY_QUOTA_CEILING - dailyQuotaUsed,
+    percentUsed: Number(((dailyQuotaUsed / DAILY_QUOTA_CEILING) * 100).toFixed(2))
   });
 });
 
@@ -130,10 +179,9 @@ app.post('/api/v1/youtube/config', (req, res) => {
   if (clientSecret) globalGoogleClientSecret = clientSecret.trim();
   if (accessToken) globalGoogleAccessToken = accessToken.trim();
 
-  console.log(`[Youtube-Sync Config] Original variables dynamically updated: ClientID (${globalGoogleClientId.substring(0, 10)}...), Secret update: ${!!clientSecret}, AccessToken update: ${!!accessToken}`);
+  log('INFO', `Original variables dynamically updated: ClientID (${globalGoogleClientId.substring(0, 10)}...)`, req.correlationId);
 
-  res.json({
-    success: true,
+  sendResponse(res, 200, true, {
     message: 'Original Google API credentials dynamically altered in youtube-sync-service state.',
     config: {
       clientId: `${globalGoogleClientId.substring(0, 10)}...`,
@@ -143,42 +191,50 @@ app.post('/api/v1/youtube/config', (req, res) => {
   });
 });
 
-// Diagnostic Health check
+// 4. Health & Readiness Checks
 app.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    service: 'youtube-sync-service',
-    timestamp: new Date().toISOString()
-  });
+  sendResponse(res, 200, true, { status: 'healthy', service: 'youtube-sync-service' });
+});
+
+app.get('/ready', async (req, res) => {
+  try {
+    if (!DATABASE_URL) {
+      throw new Error('Database not configured');
+    }
+    await pool.query('SELECT 1');
+    sendResponse(res, 200, true, { status: 'ready', database: 'connected' });
+  } catch (err) {
+    log('WARN', `Readiness Probe Warning: ${err.message}. Returning degraded standby state.`, req.correlationId);
+    sendResponse(res, 200, true, { status: 'degraded', database: 'disconnected', fallback: 'active' });
+  }
 });
 
 // Retrieve list of connected channels
 app.get('/api/v1/youtube/channels', (req, res) => {
-  res.json({ success: true, data: connectedChannels });
+  sendResponse(res, 200, true, connectedChannels);
 });
 
 // Register a new custom YouTube channel dynamically
 app.post('/api/v1/youtube/channels', (req, res) => {
   const { channelId, title } = req.body;
   if (!channelId || !title) {
-    return res.status(400).json({ success: false, message: 'channelId and title are required' });
+    return sendResponse(res, 400, false, null, {}, [{ code: 'INVALID_PARAMETERS', message: 'channelId and title are required' }]);
   }
 
-  // Pre-seed dynamically linked videos representing this newly connected custom channel
   const dummyTitle = title.trim();
   const dummyId = channelId.trim();
 
   const newChannelEntry = {
-    id: `chan-${Math.random().toString(36).substring(4)}`,
+    id: `chan-${crypto.randomUUID().substring(0, 8)}`,
     channelId: dummyId,
     title: dummyTitle,
     syncedCount: 2
   };
 
   const video1 = {
-    id: `chan-vid-${Math.random().toString(36).substring(4)}`,
+    id: `chan-vid-${crypto.randomUUID().substring(0, 8)}`,
     channelId: dummyId,
-    youtubeId: 'dQw4w9WgXcQ', // Interactive preview embed
+    youtubeId: 'dQw4w9WgXcQ',
     title: `[${dummyTitle}] - Ancient Architectural Foundations`,
     description: `Exploring original archaeological excavations and spatial architectural layouts mapped specifically under channel ${dummyId}.`,
     category: 'Ancient Architecture',
@@ -191,7 +247,7 @@ app.post('/api/v1/youtube/channels', (req, res) => {
   };
 
   const video2 = {
-    id: `chan-vid-${Math.random().toString(36).substring(4)}`,
+    id: `chan-vid-${crypto.randomUUID().substring(0, 8)}`,
     channelId: dummyId,
     youtubeId: '9bZkp7q19f0',
     title: `[${dummyTitle}] - Deciphering Lost Inscriptions`,
@@ -208,43 +264,32 @@ app.post('/api/v1/youtube/channels', (req, res) => {
   connectedChannels.push(newChannelEntry);
   syncedVideos.push(video1, video2);
 
-  res.json({
-    success: true,
-    data: {
-      channel: newChannelEntry,
-      newVideos: [video1, video2]
-    }
+  sendResponse(res, 200, true, {
+    channel: newChannelEntry,
+    newVideos: [video1, video2]
   });
 });
 
 // Retrieve list of dynamically linked and arranged videos
 app.get('/api/v1/youtube/videos', (req, res) => {
-  res.json({ success: true, data: syncedVideos });
+  sendResponse(res, 200, true, syncedVideos);
 });
 
 // Trigger YouTube Synchronizer
 app.post('/api/v1/youtube/sync', async (req, res) => {
-  console.log('Initiating Google YouTube Data & Analytics API sync flow...');
+  log('INFO', 'Initiating Google YouTube Data & Analytics API sync flow...', req.correlationId);
 
-  // Enforce rigid Quota Consumption before execution
-  // Each synchronization query triggers channel lists (1 unit) and playlist item retrieval (1 unit) -> total 2 quota units
   const syncQuotaCost = 2;
   try {
     assertAndConsumeQuota(syncQuotaCost);
   } catch (quotaErr) {
-    return res.status(429).json({
-      status: 'error',
-      code: 'QUOTA_EXCEEDED',
-      message: quotaErr.message
-    });
+    return sendResponse(res, 429, false, null, {}, [{ code: 'QUOTA_EXCEEDED', message: quotaErr.message }]);
   }
 
-  // Extract custom Google OAuth parameters from UI-provided headers or resolve from dynamically altered original variables
   const userClientId = req.headers['x-google-client-id'] || globalGoogleClientId;
   const userClientSecret = req.headers['x-google-client-secret'] || globalGoogleClientSecret;
   const userAccessToken = req.headers['x-google-access-token'] || globalGoogleAccessToken;
 
-  // Check if custom dynamic OAuth keys + active session access tokens are provided (not mock defaults)
   const isProdCredentials = userClientId && userClientSecret && userAccessToken &&
                             !userClientId.startsWith('mock_') &&
                             !userClientSecret.startsWith('mock_') &&
@@ -254,9 +299,9 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
                             userAccessToken.trim() !== '';
 
   if (!isProdCredentials) {
-    console.log(`Using simulated developmental YouTube analytics response. Reason: isProdCredentials is false (Client: ${userClientId.substring(0, 8)}..., Secret length: ${userClientSecret ? userClientSecret.length : 0}, Token length: ${userAccessToken ? userAccessToken.length : 0})`);
+    log('INFO', 'Using simulated developmental YouTube analytics response...', req.correlationId);
     const updatedMetrics = {
-      sync_id: require('crypto').randomUUID(),
+      sync_id: crypto.randomUUID(),
       tenant_id: DEFAULT_TENANT_ID,
       channel_id: 'UC_mock_channel_01',
       subscriber_count: lastSyncedMetrics.subscriber_count + Math.floor(Math.random() * 25),
@@ -270,12 +315,12 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
       const params = [updatedMetrics.sync_id, updatedMetrics.tenant_id, updatedMetrics.subscriber_count, updatedMetrics.total_views, updatedMetrics.total_watch_time_minutes, updatedMetrics.last_synced_at];
       await pool.query(queryStr, params);
     } catch (err) {
-      console.warn('Database unseeded or offline, local memory state updated.');
+      log('WARN', `Database metrics recording failed (DB unseeded/offline): ${err.message}`, req.correlationId);
     }
 
     lastSyncedMetrics = updatedMetrics;
 
-    return res.json({
+    return sendResponse(res, 200, true, {
       status: 'success',
       mode: 'SIMULATION',
       message: 'Simulated Google client library sync completed successfully.',
@@ -285,7 +330,7 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
 
   // Live production Google API Client Flow using user credentials provided from the Admin Settings
   try {
-    console.log(`Dynamic Google API credentials and active Access Token resolved. Initializing OAuth2 client with ClientID: ${userClientId.substring(0, 15)}...`);
+    log('INFO', `Dynamic Google API credentials resolved. Initializing OAuth2 client with ClientID: ${userClientId.substring(0, 15)}...`, req.correlationId);
 
     const customOauth2Client = new google.auth.OAuth2(
       userClientId,
@@ -293,7 +338,6 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
       'http://localhost:3000/api/auth/google/callback'
     );
 
-    // Securely feed the user's active access token dynamically straight into the client
     customOauth2Client.setCredentials({
       access_token: userAccessToken
     });
@@ -308,7 +352,6 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
       auth: customOauth2Client
     });
 
-    // Dynamic list call
     const channelRes = await youtube.channels.list({
       part: 'snippet,statistics,contentDetails',
       mine: true
@@ -324,7 +367,7 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
     });
 
     const syncedMetrics = {
-      sync_id: require('crypto').randomUUID(),
+      sync_id: crypto.randomUUID(),
       tenant_id: DEFAULT_TENANT_ID,
       channel_id: channelItem.id,
       subscriber_count: parseInt(channelItem.statistics.subscriberCount),
@@ -335,7 +378,7 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
 
     lastSyncedMetrics = syncedMetrics;
 
-    res.json({
+    sendResponse(res, 200, true, {
       status: 'success',
       mode: 'PRODUCTION',
       message: 'Official Google APIs synchronized successfully using dynamic credentials.',
@@ -344,20 +387,55 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Google client library dynamic execution error:', error.message);
-    res.status(500).json({
-      status: 'error',
-      message: 'Failed to authenticate or connect with official dynamic Google APIs.',
-      error: error.message
-    });
+    log('ERROR', `Google client library dynamic execution error: ${error.message}`, req.correlationId);
+    sendResponse(res, 500, false, null, {}, [{ code: 'GOOGLE_API_ERROR', message: error.message }]);
   }
 });
 
 // Retrieve latest analytical metrics
 app.get('/api/v1/youtube/metrics', (req, res) => {
-  res.json(lastSyncedMetrics);
+  sendResponse(res, 200, true, lastSyncedMetrics);
 });
 
-app.listen(PORT, () => {
-  console.log(`YouTube Sync Service initialized on port ${PORT}`);
+// 5. Centralized Error Handling Middleware
+app.use((err, req, res, next) => {
+  const statusCode = err.status || 500;
+  const errCode = err.code || 'INTERNAL_SERVER_ERROR';
+  const errMessage = err.message || 'An unexpected error occurred';
+
+  log('ERROR', `Error processing request: ${errMessage}`, req.correlationId, { stack: err.stack });
+
+  sendResponse(res, statusCode, false, null, {}, [{
+    code: errCode,
+    message: errMessage,
+    field: err.field || null
+  }]);
 });
+
+// 6. Graceful Shutdown
+const server = app.listen(PORT, () => {
+  log('INFO', `YouTube Sync Service initialized on port ${PORT}`);
+});
+
+const gracefulShutdown = (signal) => {
+  log('INFO', `Received ${signal}. Starting graceful shutdown of YouTube Sync Service...`);
+  server.close(async () => {
+    log('INFO', 'YouTube Sync Service HTTP server closed. Draining database connection pool...');
+    try {
+      await pool.end();
+      log('INFO', 'Postgres pool successfully terminated. Process exiting.');
+      process.exit(0);
+    } catch (dbErr) {
+      log('ERROR', `Error terminating Postgres connection pool: ${dbErr.message}`, '', { error: dbErr });
+      process.exit(1);
+    }
+  });
+
+  setTimeout(() => {
+    log('WARN', 'Forced shutdown triggered after timeout.');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
