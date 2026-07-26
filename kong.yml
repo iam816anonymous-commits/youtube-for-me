@@ -49,3 +49,11 @@ services:
         paths:
           - /api/v1/youtube
         strip_path: false
+
+  - name: schema-manager-service
+    url: http://schema-manager-service:8088
+    routes:
+      - name: schema-manager-routes
+        paths:
+          - /api/v1/schemas
+        strip_path: false

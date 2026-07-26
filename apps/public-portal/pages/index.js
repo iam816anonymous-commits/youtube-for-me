@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 const INITIAL_VIDEOS = [
   {
     id: 'yt-1',
+    channelId: 'UC_mock_channel_01',
     youtubeId: 'b9SbyPZfF-E', // Interactive YouTube Embed fallback
     title: 'The Great Crisis of the Third Century',
     description: 'An in-depth analysis of how economic collapse, constant civil conflicts, and external barbarian invasions nearly destroyed the Roman Empire. This chronicle details hyperinflation, monetary debasement, and Aurelian’s rapid reunification efforts.',
@@ -17,6 +18,7 @@ const INITIAL_VIDEOS = [
   },
   {
     id: 'yt-2',
+    channelId: 'UC_mock_channel_01',
     youtubeId: 'tO13uXz-X-k',
     title: 'Byzantine Siege Engines & Firepower',
     description: 'Exploring the advanced engineering of medieval Constantinople. Unveiling the chemical mystery behind Greek Fire, defensive double-walls, and the mechanical superiorities of traction counterweight trebuchets.',
@@ -30,6 +32,7 @@ const INITIAL_VIDEOS = [
   },
   {
     id: 'yt-3',
+    channelId: 'UC_mock_channel_01',
     youtubeId: 'L_W-YfC0VIs',
     title: 'The Silencing of the Libraries: Late Antiquity Paradigm Shifts',
     description: 'Tracing the transition of knowledge networks from pagan academies to monastic scriptoriums. How scrolls were systematically copied, stored, or lost during the turbulent centuries of intellectual reconstruction.',
@@ -43,6 +46,7 @@ const INITIAL_VIDEOS = [
   },
   {
     id: 'yt-4',
+    channelId: 'UC_mock_channel_01',
     youtubeId: 'U_g6b8g_L_8',
     title: 'Socio-Political Decay Trends in Hegemonic Empires',
     description: 'A mathematical and systemic modeling approach to civilizational collapse. Examining Peter Turchin’s cliodynamics, elite overproduction, fiscal distress, and popular immiseration across dynasties.',
@@ -63,12 +67,12 @@ const INITIAL_BOOKS = [
   { id: '104', title: 'The Library of Alexandria: Centre of Learning', author: 'Roy MacLeod', description: 'A thorough study of the mythical library as the ancient hub of global scientific synergy.' }
 ];
 
-const CATEGORIES = ['All Topics', 'Ancient Rome', 'Byzantine Empire', 'Late Antiquity', 'Cliodynamics'];
+const CATEGORIES = ['All Topics', 'Ancient Rome', 'Byzantine Empire', 'Late Antiquity', 'Cliodynamics', 'Ancient Architecture', 'Linguistics'];
 
 export default function PublicHome() {
   const [videos, setVideos] = useState([]);
   const [books, setBooks] = useState(INITIAL_BOOKS);
-  const [activeVideo, setActiveVideo] = useState(INITIAL_VIDEOS[0]);
+  const [activeVideo, setActiveVideo] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All Topics');
 
@@ -88,17 +92,17 @@ export default function PublicHome() {
   useEffect(() => {
     const loadPublicData = async () => {
       try {
-        const resV = await fetch(`${API_URL}/api/v1/videos?status=published`);
+        const resV = await fetch(`${API_URL}/api/v1/youtube/videos`);
         if (resV.ok) {
           const data = await resV.json();
           // Merge API results with rich mock attributes to ensure a stellar portal UI
-          const merged = INITIAL_VIDEOS.map(v => {
-            const apiMatch = data.find(item => item.title.toLowerCase() === v.title.toLowerCase());
-            return apiMatch ? { ...v, ...apiMatch } : v;
-          });
-          setVideos(merged);
+          setVideos(data.data || INITIAL_VIDEOS);
+          if (data.data && data.data.length > 0) {
+            setActiveVideo(data.data[0]);
+          }
         } else {
           setVideos(INITIAL_VIDEOS);
+          setActiveVideo(INITIAL_VIDEOS[0]);
         }
 
         const resB = await fetch(`${API_URL}/api/v1/library/books`);
@@ -112,6 +116,7 @@ export default function PublicHome() {
         }
       } catch (err) {
         setVideos(INITIAL_VIDEOS);
+        setActiveVideo(INITIAL_VIDEOS[0]);
         setBooks(INITIAL_BOOKS);
       }
     };
@@ -121,7 +126,7 @@ export default function PublicHome() {
 
   // Sync simulator timer when video is playing
   useEffect(() => {
-    if (isPlaying) {
+    if (isPlaying && activeVideo) {
       timerRef.current = setInterval(() => {
         setCurrentTime(prev => {
           const [min, sec] = activeVideo.duration.split(':').map(Number);
@@ -540,7 +545,7 @@ export default function PublicHome() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {books.map(b => {
-                  const isLinkedToActive = activeVideo && activeVideo.linkedBookIds.includes(b.id);
+                  const isLinkedToActive = activeVideo && activeVideo.linkedBookIds && activeVideo.linkedBookIds.includes(b.id);
                   return (
                     <div
                       key={b.id}

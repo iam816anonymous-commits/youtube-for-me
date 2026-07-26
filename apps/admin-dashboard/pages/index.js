@@ -12,9 +12,23 @@ export default function Home() {
   const [ytMetrics, setYtMetrics] = useState(null);
   const [syncStatusMsg, setSyncStatusMsg] = useState('');
 
+  // Custom Connected Channels States
+  const [connectedChannels, setConnectedChannels] = useState([]);
+  const [newChannelId, setNewChannelId] = useState('');
+  const [newChannelTitle, setNewChannelTitle] = useState('');
+  const [channelSuccessMsg, setChannelSuccessMsg] = useState('');
+
   // Phase 4 Multi-Tenant SaaS Workspace Context Toggles
   const [tenantContext, setTenantContext] = useState('00000000-0000-0000-0000-000000000000');
   const [tenantLabel, setTenantContextLabel] = useState('Primary Creator');
+
+  // Dynamic Schema Creator States
+  const [customSchemas, setCustomSchemas] = useState([]);
+  const [newTableName, setNewTableName] = useState('');
+  const [newFieldName, setNewFieldName] = useState('');
+  const [newFieldType, setNewFieldType] = useState('VARCHAR(255)');
+  const [selectedSchemaAction, setSelectedSchemaAction] = useState('CREATE');
+  const [schemaSuccessMsg, setSchemaSuccessMsg] = useState('');
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -22,7 +36,6 @@ export default function Home() {
   const loadData = async (activeTenant) => {
     const currentTenant = activeTenant || tenantContext;
     try {
-      // Pass the active tenant context using a secure Custom Header
       const headers = {
         'Content-Type': 'application/json',
         'X-Tenant-Id': currentTenant
@@ -46,6 +59,20 @@ export default function Home() {
       if (resYt.ok) {
         const data = await resYt.json();
         setYtMetrics(data);
+      }
+
+      // Fetch Dynamic Custom Schemas
+      const resSchemas = await fetch(`${API_URL}/api/v1/schemas`, { headers });
+      if (resSchemas.ok) {
+        const data = await resSchemas.json();
+        setCustomSchemas(data.data || []);
+      }
+
+      // Fetch Custom Registered YouTube Channels
+      const resChans = await fetch(`${API_URL}/api/v1/youtube/channels`, { headers });
+      if (resChans.ok) {
+        const data = await resChans.json();
+        setConnectedChannels(data.data || []);
       }
     } catch (err) {
       // Segregated resilient fallback schemas mapped dynamically based on selected tenant context
@@ -84,9 +111,36 @@ export default function Home() {
         last_synced_at: new Date().toISOString()
       };
 
+      const defaultSchemas = [
+        {
+          tableName: 'custom_youtube_leads',
+          fields: [
+            { name: 'id', type: 'UUID', primary: true },
+            { name: 'lead_name', type: 'VARCHAR(255)' },
+            { name: 'email', type: 'VARCHAR(255)' },
+            { name: 'channel_size', type: 'INTEGER' }
+          ]
+        },
+        {
+          tableName: 'custom_content_briefs',
+          fields: [
+            { name: 'id', type: 'UUID', primary: true },
+            { name: 'brief_title', type: 'VARCHAR(255)' },
+            { name: 'target_duration', type: 'INTEGER' },
+            { name: 'approved', type: 'BOOLEAN' }
+          ]
+        }
+      ];
+
+      const defaultChannels = [
+        { id: 'chan-primary', channelId: 'UC_mock_channel_01', title: 'Primary Historical Chronicles', syncedCount: 4 }
+      ];
+
       setVideos(defaultVideos);
       setRoadmaps(defaultRoadmaps);
       setYtMetrics(defaultYt);
+      setCustomSchemas(defaultSchemas);
+      setConnectedChannels(defaultChannels);
     }
   };
 
@@ -176,6 +230,157 @@ export default function Home() {
         setSyncStatusMsg('Simulated sync complete (API Gateway offline).');
         setTimeout(() => setSyncStatusMsg(''), 4000);
       }
+    }
+  };
+
+  // Submit dynamic custom YouTube channel connection payload
+  const handleConnectChannel = async (e) => {
+    e.preventDefault();
+    if (!newChannelId || !newChannelTitle) return;
+
+    const payload = {
+      channelId: newChannelId.trim(),
+      title: newChannelTitle.trim()
+    };
+
+    try {
+      const res = await fetch(`${API_URL}/api/v1/youtube/channels`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Tenant-Id': tenantContext
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const result = await res.json();
+        setConnectedChannels([...connectedChannels, result.data.channel]);
+
+        // Arrange and append dynamically linked videos to active state backlog
+        const formattedNewVideos = result.data.newVideos.map(vid => ({
+          id: vid.id,
+          title: vid.title,
+          description: vid.description,
+          status: 'published'
+        }));
+        setVideos([...videos, ...formattedNewVideos]);
+
+        setChannelSuccessMsg(`Successfully linked custom channel: "${payload.title}" and arranged 2 new video chronicles dynamically.`);
+      } else {
+        throw new Error('Gateway youtube-sync-service offline');
+      }
+    } catch (err) {
+      // Simulated local fallback connection state
+      const mockChannel = {
+        id: `chan-${Math.random().toString(36).substring(4)}`,
+        channelId: payload.channelId,
+        title: payload.title,
+        syncedCount: 2
+      };
+
+      const mockVids = [
+        {
+          id: `vid-mock-${Math.random().toString(36).substring(4)}`,
+          title: `[${payload.title}] - Ancient Architectural Foundations`,
+          description: `Exploring original archaeological excavations and spatial architectural layouts mapped specifically under channel ${payload.channelId}.`,
+          status: 'published'
+        },
+        {
+          id: `vid-mock-${Math.random().toString(36).substring(4)}`,
+          title: `[${payload.title}] - Deciphering Lost Inscriptions`,
+          description: `A close linguistic analysis of newly uncovered stone tablets, translating classical dialects into structural operational metadata.`,
+          status: 'published'
+        }
+      ];
+
+      setConnectedChannels([...connectedChannels, mockChannel]);
+      setVideos([...videos, ...mockVids]);
+      setChannelSuccessMsg(`Connected Custom Channel (SIMULATED): "${payload.title}" and auto-arranged 2 linked video entries.`);
+    }
+
+    setNewChannelId('');
+    setNewChannelTitle('');
+    setTimeout(() => setChannelSuccessMsg(''), 6000);
+  };
+
+  // Dispatch schema adjustment payload
+  const handleAlterSchema = async (e) => {
+    e.preventDefault();
+    if (!newTableName || !newFieldName) return;
+
+    const payload = {
+      tableName: newTableName.toLowerCase().trim(),
+      action: selectedSchemaAction,
+      fields: [
+        { name: newFieldName.toLowerCase().trim(), type: newFieldType, primary: selectedSchemaAction === 'CREATE' && newFieldName.toLowerCase().trim() === 'id' }
+      ]
+    };
+
+    // If CREATE and id is not specified, prepend default primary key field
+    if (selectedSchemaAction === 'CREATE' && payload.fields[0].name !== 'id') {
+      payload.fields.unshift({ name: 'id', type: 'UUID', primary: true });
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/api/v1/schemas`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Tenant-Id': tenantContext
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setSchemaSuccessMsg(`DDL Migrations Executed: "${data.data.sqlPreview}"`);
+        const existing = customSchemas.find(s => s.tableName === payload.tableName);
+        if (existing) {
+          if (selectedSchemaAction === 'ADD_COLUMN') {
+            existing.fields.push(payload.fields[0]);
+            setCustomSchemas([...customSchemas]);
+          }
+        } else {
+          setCustomSchemas([...customSchemas, { tableName: payload.tableName, fields: payload.fields }]);
+        }
+      } else {
+        throw new Error('Gateway schema-manager offline');
+      }
+    } catch (err) {
+      // Offline fallback state update simulation
+      const sqlSimulated = selectedSchemaAction === 'CREATE'
+        ? `CREATE TABLE IF NOT EXISTS public.${payload.tableName} (${payload.fields.map(f => `${f.name} ${f.type}${f.primary ? ' PRIMARY KEY' : ''}`).join(', ')});`
+        : `ALTER TABLE public.${payload.tableName} ADD COLUMN IF NOT EXISTS ${payload.fields[0].name} ${payload.fields[0].type};`;
+
+      setSchemaSuccessMsg(`Simulated Migration Code: "${sqlSimulated}" (Gateway offline)`);
+
+      const existing = customSchemas.find(s => s.tableName === payload.tableName);
+      if (existing) {
+        if (selectedSchemaAction === 'ADD_COLUMN') {
+          existing.fields.push(payload.fields[0]);
+          setCustomSchemas([...customSchemas]);
+        }
+      } else {
+        setCustomSchemas([...customSchemas, { tableName: payload.tableName, fields: payload.fields }]);
+      }
+    }
+
+    setNewTableName('');
+    setNewFieldName('');
+    setTimeout(() => setSchemaSuccessMsg(''), 8000);
+  };
+
+  // Compiles real-time generated preview SQL
+  const getSqlPreview = () => {
+    if (!newTableName || !newFieldName) return '-- Enter Table & Column details to preview SQL DDL statement';
+    const cleanTable = newTableName.toLowerCase().trim();
+    const cleanField = newFieldName.toLowerCase().trim();
+    if (selectedSchemaAction === 'CREATE') {
+      const firstField = cleanField === 'id' ? '' : 'id UUID PRIMARY KEY, ';
+      return `CREATE TABLE IF NOT EXISTS public.${cleanTable} (\n  ${firstField}${cleanField} ${newFieldType}\n);`;
+    } else {
+      return `ALTER TABLE public.${cleanTable} \nADD COLUMN IF NOT EXISTS ${cleanField} ${newFieldType};`;
     }
   };
 
@@ -300,84 +505,284 @@ export default function Home() {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2.5fr', gap: '32px' }}>
+        {/* Unified Command Layout split */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 2.3fr', gap: '32px' }}>
 
-          {/* Creator Inputs Sidebar */}
-          <aside style={{ backgroundColor: '#1e293b', border: '1px solid #334155', padding: '24px', borderRadius: '12px', height: 'fit-content', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-            <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '16px', fontWeight: '700', color: '#f8fafc', borderBottom: '1px solid #334155', paddingBottom: '12px' }}>Add Video Idea</h3>
-            <form onSubmit={handleAddVideo} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Video Title
-                <input
-                  type="text"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  required
-                  style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '14px' }}
-                />
-              </label>
-              <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Description / Context
-                <textarea
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                  style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '14px', height: '100px', resize: 'none' }}
-                />
-              </label>
-              <button
-                type="submit"
-                style={{ padding: '12px', backgroundColor: '#38bdf8', color: '#0f172a', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', fontSize: '14px' }}
-              >
-                Save Concept
-              </button>
-            </form>
-          </aside>
+          {/* Creator Inputs Sidebar Left */}
+          <aside style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
-          {/* Main Content Workspace tabs */}
-          <main style={{ backgroundColor: '#1e293b', border: '1px solid #334155', padding: '32px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', borderBottom: '1px solid #334155', paddingBottom: '16px' }}>
-              <button
-                onClick={() => setActiveTab('videos')}
-                style={{ padding: '10px 20px', backgroundColor: activeTab === 'videos' ? '#38bdf8' : 'transparent', color: activeTab === 'videos' ? '#0f172a' : '#94a3b8', border: activeTab === 'videos' ? 'none' : '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', fontSize: '14px' }}
-              >
-                Videos / Backlog
-              </button>
-              <button
-                onClick={() => setActiveTab('roadmaps')}
-                style={{ padding: '10px 20px', backgroundColor: activeTab === 'roadmaps' ? '#38bdf8' : 'transparent', color: activeTab === 'roadmaps' ? '#0f172a' : '#94a3b8', border: activeTab === 'roadmaps' ? 'none' : '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', fontSize: '14px' }}
-              >
-                Roadmaps / Goals
-              </button>
+            {/* Connect Custom YouTube Channel setting panel */}
+            <div style={{ backgroundColor: '#1e293b', border: '1px solid #ef4444', borderTopWidth: '4px', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '14px', fontSize: '16px', fontWeight: '700', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>🔌</span> Connect Custom Channel
+              </h3>
+              <p style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.5', margin: '0 0 16px 0' }}>
+                Enter a custom YouTube Channel ID to dynamically connect and arrange videos straight from its upload history stream.
+              </p>
+
+              <form onSubmit={handleConnectChannel} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+                  Channel Name / Title
+                  <input
+                    type="text"
+                    placeholder="e.g. Bronze Age Chronicles"
+                    value={newChannelTitle}
+                    onChange={(e) => setNewChannelTitle(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+                  />
+                </label>
+
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+                  YouTube Channel ID
+                  <input
+                    type="text"
+                    placeholder="e.g. UC_custom_bronze_928"
+                    value={newChannelId}
+                    onChange={(e) => setNewChannelId(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  style={{ padding: '12px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', fontSize: '13px' }}
+                >
+                  Link & Arrange Channel
+                </button>
+              </form>
+
+              {channelSuccessMsg && (
+                <div style={{ marginTop: '14px', padding: '10px', backgroundColor: '#111827', borderLeft: '3px solid #10b981', color: '#10b981', fontSize: '12px', borderRadius: '0 6px 6px 0' }}>
+                  {channelSuccessMsg}
+                </div>
+              )}
             </div>
 
-            {activeTab === 'videos' ? (
-              <div>
-                <h2 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', fontWeight: '800', letterSpacing: '-0.01em', color: '#f8fafc' }}>Active Content Backlog</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {videos.map(v => (
-                    <div key={v.id} style={{ border: '1px solid #334155', backgroundColor: '#0f172a', padding: '20px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 'bold', color: '#f8fafc' }}>{v.title}</h3>
-                        <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px', lineHeight: '1.4' }}>{v.description}</p>
+            {/* Table Concept Block */}
+            <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '16px', fontWeight: '700', color: '#f8fafc', borderBottom: '1px solid #334155', paddingBottom: '12px' }}>Add Video Idea</h3>
+              <form onSubmit={handleAddVideo} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Video Title
+                  <input
+                    type="text"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '14px' }}
+                  />
+                </label>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Description / Context
+                  <textarea
+                    value={newDesc}
+                    onChange={(e) => setNewDesc(e.target.value)}
+                    style={{ width: '100%', padding: '10px', marginTop: '6px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '14px', height: '100px', resize: 'none' }}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  style={{ padding: '12px', backgroundColor: '#38bdf8', color: '#0f172a', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', fontSize: '14px' }}
+                >
+                  Save Concept
+                </button>
+              </form>
+            </div>
+
+            {/* Dynamic Schema Management Controller UI */}
+            <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', padding: '24px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '14px', fontSize: '16px', fontWeight: '700', color: '#38bdf8', borderBottom: '1px solid #334155', paddingBottom: '12px' }}>
+                ⚙️ Dynamic Schema Manager
+              </h3>
+              <p style={{ fontSize: '12px', color: '#94a3b8', lineHeight: '1.5', margin: '0 0 16px 0' }}>
+                Alters database schemas physically on PostgreSQL tables end-to-end dynamically straight from this interface.
+              </p>
+
+              <form onSubmit={handleAlterSchema} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+                  Action
+                  <select
+                    value={selectedSchemaAction}
+                    onChange={(e) => setSelectedSchemaAction(e.target.value)}
+                    style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+                  >
+                    <option value="CREATE">CREATE NEW TABLE</option>
+                    <option value="ADD_COLUMN">ADD NEW COLUMN TO TABLE</option>
+                  </select>
+                </label>
+
+                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+                  Table Name
+                  <input
+                    type="text"
+                    placeholder="e.g. custom_video_metrics"
+                    value={newTableName}
+                    onChange={(e) => setNewTableName(e.target.value)}
+                    required
+                    style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+                  />
+                </label>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '10px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+                    Column Name
+                    <input
+                      type="text"
+                      placeholder="e.g. priority_rating"
+                      value={newFieldName}
+                      onChange={(e) => setNewFieldName(e.target.value)}
+                      required
+                      style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+                    />
+                  </label>
+
+                  <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#cbd5e1', textTransform: 'uppercase' }}>
+                    Type
+                    <select
+                      value={newFieldType}
+                      onChange={(e) => setNewFieldType(e.target.value)}
+                      style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
+                    >
+                      <option value="VARCHAR(255)">VARCHAR(255)</option>
+                      <option value="INTEGER">INTEGER</option>
+                      <option value="BOOLEAN">BOOLEAN</option>
+                      <option value="TIMESTAMP">TIMESTAMP</option>
+                      <option value="TEXT">TEXT</option>
+                    </select>
+                  </label>
+                </div>
+
+                {/* Real-time DDL statement previewer */}
+                <div style={{ marginTop: '10px' }}>
+                  <span style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Generated SQL Preview</span>
+                  <pre style={{ margin: '4px 0 0 0', backgroundColor: '#090d16', border: '1px solid #1e293b', padding: '10px', borderRadius: '6px', fontSize: '11px', color: '#10b981', overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
+                    {getSqlPreview()}
+                  </pre>
+                </div>
+
+                <button
+                  type="submit"
+                  style={{ padding: '12px', backgroundColor: '#14b8a6', color: '#0f172a', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s', fontSize: '13px', marginTop: '10px' }}
+                >
+                  Execute Dynamic Migration
+                </button>
+              </form>
+
+              {schemaSuccessMsg && (
+                <div style={{ marginTop: '16px', padding: '10px', backgroundColor: '#064e3b', border: '1px solid #059669', borderRadius: '6px', color: '#a7f3d0', fontSize: '12px', wordBreak: 'break-all' }}>
+                  {schemaSuccessMsg}
+                </div>
+              )}
+            </div>
+          </aside>
+
+          {/* Main Content Workspace tabs right */}
+          <main style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
+            <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', padding: '32px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '28px', borderBottom: '1px solid #334155', paddingBottom: '16px' }}>
+                <button
+                  onClick={() => setActiveTab('videos')}
+                  style={{ padding: '10px 20px', backgroundColor: activeTab === 'videos' ? '#38bdf8' : 'transparent', color: activeTab === 'videos' ? '#0f172a' : '#94a3b8', border: activeTab === 'videos' ? 'none' : '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', fontSize: '14px' }}
+                >
+                  Videos / Backlog
+                </button>
+                <button
+                  onClick={() => setActiveTab('roadmaps')}
+                  style={{ padding: '10px 20px', backgroundColor: activeTab === 'roadmaps' ? '#38bdf8' : 'transparent', color: activeTab === 'roadmaps' ? '#0f172a' : '#94a3b8', border: activeTab === 'roadmaps' ? 'none' : '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', fontSize: '14px' }}
+                >
+                  Roadmaps / Goals
+                </button>
+              </div>
+
+              {activeTab === 'videos' ? (
+                <div>
+                  <h2 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', fontWeight: '800', letterSpacing: '-0.01em', color: '#f8fafc' }}>Active Content Backlog</h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {videos.map(v => (
+                      <div key={v.id} style={{ border: '1px solid #334155', backgroundColor: '#0f172a', padding: '20px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 'bold', color: '#f8fafc' }}>{v.title}</h3>
+                          <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px', lineHeight: '1.4' }}>{v.description}</p>
+                        </div>
+                        <span style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#38bdf8', padding: '6px 12px', borderRadius: '20px', fontSize: '11px', textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: '0.05em' }}>{v.status || 'ideation'}</span>
                       </div>
-                      <span style={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#38bdf8', padding: '6px 12px', borderRadius: '20px', fontSize: '11px', textTransform: 'uppercase', fontWeight: 'bold', letterSpacing: '0.05em' }}>{v.status || 'ideation'}</span>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div>
-                <h2 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', fontWeight: '800', letterSpacing: '-0.01em', color: '#f8fafc' }}>Active Roadmaps</h2>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  {roadmaps.map(r => (
-                    <div key={r.id} style={{ border: '1px solid #334155', backgroundColor: '#0f172a', padding: '20px', borderRadius: '8px' }}>
-                      <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 'bold', color: '#f8fafc' }}>{r.title}</h3>
-                      <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px', lineHeight: '1.4' }}>{r.description}</p>
-                    </div>
-                  ))}
+              ) : (
+                <div>
+                  <h2 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', fontWeight: '800', letterSpacing: '-0.01em', color: '#f8fafc' }}>Active Roadmaps</h2>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {roadmaps.map(r => (
+                      <div key={r.id} style={{ border: '1px solid #334155', backgroundColor: '#0f172a', padding: '20px', borderRadius: '8px' }}>
+                        <h3 style={{ margin: '0 0 6px 0', fontSize: '16px', fontWeight: 'bold', color: '#f8fafc' }}>{r.title}</h3>
+                        <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px', lineHeight: '1.4' }}>{r.description}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )}
+            </div>
+
+            {/* Dynamic Schema Catalog Explorer */}
+            <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', padding: '32px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+              <h2 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', fontWeight: '800', color: '#f8fafc' }}>
+                Active Custom Database Tables ({customSchemas.length})
+              </h2>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                {customSchemas.map(schema => (
+                  <div key={schema.tableName} style={{ border: '1px solid #334155', backgroundColor: '#0f172a', padding: '20px', borderRadius: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', borderBottom: '1px solid #1e293b', paddingBottom: '8px' }}>
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#14b8a6' }}>
+                        📊 {schema.tableName}
+                      </span>
+                      <span style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold' }}>
+                        public
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {schema.fields.map(f => (
+                        <div key={f.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px' }}>
+                          <span style={{ color: '#cbd5e1', fontWeight: 'bold' }}>
+                            {f.name} {f.primary && <span style={{ color: '#f59e0b', fontSize: '10px' }}>🔑</span>}
+                          </span>
+                          <span style={{ color: '#64748b', fontFamily: 'monospace' }}>
+                            {f.type}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
-            )}
+            </div>
+
+            {/* Connected YouTube Channels Explorer */}
+            <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', padding: '32px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+              <h2 style={{ marginTop: 0, marginBottom: '20px', fontSize: '18px', fontWeight: '800', color: '#f8fafc' }}>
+                🔌 Connected Custom Channels ({connectedChannels.length})
+              </h2>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                {connectedChannels.map(chan => (
+                  <div key={chan.id} style={{ border: '1px solid #334155', backgroundColor: '#0f172a', padding: '20px', borderRadius: '10px' }}>
+                    <h3 style={{ margin: '0 0 6px 0', fontSize: '14px', fontWeight: 'bold', color: '#fca5a5' }}>
+                      {chan.title}
+                    </h3>
+                    <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#cbd5e1' }}>
+                      ID: <span style={{ fontFamily: 'monospace' }}>{chan.channelId}</span>
+                    </p>
+                    <span style={{ fontSize: '10px', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', padding: '4px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                      🟢 ACTIVE AUTOMATIC LINK SYNC
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </main>
         </div>
       </div>

@@ -151,6 +151,21 @@ services:
     networks:
       - cip-network
 
+  schema-manager-service:
+    build:
+      context: ./services/schema-manager
+      dockerfile: Dockerfile
+    container_name: cip-schema-manager-service
+    ports:
+      - "8088:8088"
+    environment:
+      - PORT=8088
+      - DATABASE_URL=postgresql://cip_admin:cip_secure_password@database:5432/cip_master_db
+      - DEFAULT_TENANT_ID=00000000-0000-0000-0000-000000000000
+    restart: unless-stopped
+    networks:
+      - cip-network
+
 networks:
   cip-network:
     driver: bridge
