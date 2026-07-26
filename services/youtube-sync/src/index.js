@@ -90,6 +90,34 @@ let lastSyncedMetrics = {
   last_synced_at: new Date().toISOString()
 };
 
+// YouTube Data API Quota & Usage State Ledger
+let dailyQuotaUsed = 120; // Starts at seed usage, capped strictly at 10,000 units
+const DAILY_QUOTA_CEILING = 10,000;
+
+// Dynamic check and increment function to strictly enforce quota ceilings
+const assertAndConsumeQuota = (unitsNeeded) => {
+  if (dailyQuotaUsed + unitsNeeded > DAILY_QUOTA_CEILING) {
+    const error = new Error(`YouTube API Quota Exceeded. Action requires ${unitsNeeded} units, but only ${DAILY_QUOTA_CEILING - dailyQuotaUsed} remain of the 10,000 daily limit.`);
+    error.code = 'QUOTA_EXCEEDED';
+    throw error;
+  }
+  dailyQuotaUsed += unitsNeeded;
+  return dailyQuotaUsed;
+};
+
+// Retrieve active quota consumption limits
+app.get('/api/v1/youtube/quota', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      used: dailyQuotaUsed,
+      limit: DAILY_QUOTA_CEILING,
+      remaining: DAILY_QUOTA_CEILING - dailyQuotaUsed,
+      percentUsed: Number(((dailyQuotaUsed / DAILY_QUOTA_CEILING) * 100).toFixed(2))
+    }
+  });
+});
+
 // Diagnostic Health check
 app.get('/health', (req, res) => {
   res.json({
@@ -172,6 +200,19 @@ app.get('/api/v1/youtube/videos', (req, res) => {
 // Trigger YouTube Synchronizer
 app.post('/api/v1/youtube/sync', async (req, res) => {
   console.log('Initiating Google YouTube Data & Analytics API sync flow...');
+
+  // Enforce rigid Quota Consumption before execution
+  // Each synchronization query triggers channel lists (1 unit) and playlist item retrieval (1 unit) -> total 2 quota units
+  const syncQuotaCost = 2;
+  try {
+    assertAndConsumeQuota(syncQuotaCost);
+  } catch (quotaErr) {
+    return res.status(429).json({
+      status: 'error',
+      code: 'QUOTA_EXCEEDED',
+      message: quotaErr.message
+    });
+  }
 
   // Extract custom Google OAuth parameters from UI-provided headers
   const userClientId = req.headers['x-google-client-id'];

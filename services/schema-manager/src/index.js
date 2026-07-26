@@ -37,13 +37,18 @@ let customSchemaMetadata = [
 ];
 
 // Whitelist of valid data types to completely avoid SQL injection vectors
+// Added NVARCHAR, NVARCHAR(255), NCHAR, and NCHAR(10) to support Telugu and multilingual titles natively.
 const VALID_TYPES_WHITELIST = [
   'VARCHAR(255)',
   'INTEGER',
   'BOOLEAN',
   'TIMESTAMP',
   'TEXT',
-  'UUID'
+  'UUID',
+  'NVARCHAR',
+  'NVARCHAR(255)',
+  'NCHAR',
+  'NCHAR(10)'
 ];
 
 // Sanitize strings to contain only safe alphanumeric characters and underscores

@@ -12,6 +12,9 @@ export default function Home() {
   const [ytMetrics, setYtMetrics] = useState(null);
   const [syncStatusMsg, setSyncStatusMsg] = useState('');
 
+  // YouTube API Quota Status States
+  const [quotaStats, setQuotaStats] = useState({ used: 120, limit: 10000, remaining: 9880, percentUsed: 1.2 });
+
   // Custom Connected Channels States
   const [connectedChannels, setConnectedChannels] = useState([]);
   const [newChannelId, setNewChannelId] = useState('');
@@ -82,6 +85,13 @@ export default function Home() {
       if (resYt.ok) {
         const data = await resYt.json();
         setYtMetrics(data);
+      }
+
+      // Fetch YouTube Quota
+      const resQuota = await fetch(`${API_URL}/api/v1/youtube/quota`, { headers });
+      if (resQuota.ok) {
+        const result = await resQuota.json();
+        setQuotaStats(result.data);
       }
 
       // Fetch Dynamic Custom Schemas
@@ -268,9 +278,22 @@ export default function Home() {
         const data = await res.json();
         setYtMetrics(data.metrics);
         setSyncStatusMsg(`YouTube data successfully synchronized! [Mode: ${data.mode}]`);
+
+        // Refresh local quota usage metrics
+        const resQ = await fetch(`${API_URL}/api/v1/youtube/quota`);
+        if (resQ.ok) {
+          const quotaResult = await resQ.json();
+          setQuotaStats(quotaResult.data);
+        }
+
         setTimeout(() => setSyncStatusMsg(''), 4000);
       } else {
-        throw new Error('Sync fail');
+        const dataErr = await res.json();
+        if (dataErr.code === 'QUOTA_EXCEEDED') {
+          setErrorMsg(dataErr.message);
+          setTimeout(() => setErrorMsg(''), 8000);
+        }
+        throw new Error(dataErr.message || 'Sync fail');
       }
     } catch (err) {
       // Simulated fallback sync update
@@ -282,6 +305,18 @@ export default function Home() {
           last_synced_at: new Date().toISOString()
         };
         setYtMetrics(updated);
+
+        // Mock quota increase
+        setQuotaStats(prev => {
+          const nextUsed = prev.used + 2;
+          return {
+            ...prev,
+            used: nextUsed,
+            remaining: prev.limit - nextUsed,
+            percentUsed: Number(((nextUsed / prev.limit) * 100).toFixed(2))
+          };
+        });
+
         setSyncStatusMsg('Simulated sync complete (API Gateway offline).');
         setTimeout(() => setSyncStatusMsg(''), 4000);
       }
@@ -560,6 +595,52 @@ export default function Home() {
           )}
         </section>
 
+        {/* Dynamic YouTube Data API Quota Usage Optimizer Card */}
+        {quotaStats && (
+          <div style={{ backgroundColor: '#1e293b', border: '1px solid #fca5a5', borderLeftWidth: '6px', padding: '24px', borderRadius: '12px', marginBottom: '32px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '32px', alignItems: 'start' }}>
+              <div>
+                <h3 style={{ marginTop: 0, marginBottom: '8px', fontSize: '15px', fontWeight: '800', color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>📉</span> YouTube Data API Quota Usage Optimizer
+                </h3>
+                <p style={{ margin: '0 0 16px 0', fontSize: '12px', color: '#94a3b8', lineHeight: '1.5' }}>
+                  Each Google Cloud project receives a default daily allowance of 10,000 quota units, resetting at midnight Pacific Time. Below is your live, safe consumption tracking status:
+                </p>
+
+                {/* Quota Progress Meter */}
+                <div style={{ marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px' }}>
+                    <span style={{ color: '#cbd5e1' }}>Daily Quota Units Consumed</span>
+                    <span style={{ color: quotaStats.percentUsed > 80 ? '#ef4444' : '#fca5a5' }}>{quotaStats.used.toLocaleString()} / {quotaStats.limit.toLocaleString()} units ({quotaStats.percentUsed}%)</span>
+                  </div>
+                  <div style={{ height: '12px', backgroundColor: '#0f172a', borderRadius: '6px', overflow: 'hidden', border: '1px solid #334155' }}>
+                    <div style={{ width: `${quotaStats.percentUsed}%`, height: '100%', backgroundColor: quotaStats.percentUsed > 80 ? '#ef4444' : '#14b8a6', transition: 'width 0.3s' }}></div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '20px', fontSize: '11px', color: '#94a3b8' }}>
+                  <span>Remaining Allowance: <strong style={{ color: '#f8fafc' }}>{quotaStats.remaining.toLocaleString()}</strong> units</span>
+                  <span>Queries Per Minute (QPM) limit: <strong style={{ color: '#f8fafc' }}>1.6 Million (Project-Wide)</strong></span>
+                </div>
+              </div>
+
+              {/* Reference Cost Manual */}
+              <div style={{ borderLeft: '1px solid #334155', paddingLeft: '32px', fontSize: '12px' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#cbd5e1', textTransform: 'uppercase', letterSpacing: '0.05em' }}>API Quota Reference Manual</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', color: '#94a3b8', fontFamily: 'monospace' }}>
+                  <div>🔍 search.list : <strong style={{ color: '#ef4444' }}>100 units</strong></div>
+                  <div>📹 videos.list : <strong style={{ color: '#10b981' }}>1 unit</strong></div>
+                  <div>💾 videos.insert : <strong style={{ color: '#ef4444' }}>1,600 units</strong></div>
+                  <div>💬 commentThreads : <strong style={{ color: '#10b981' }}>1 unit</strong></div>
+                </div>
+                <div style={{ marginTop: '12px', padding: '8px', backgroundColor: '#111827', borderRadius: '6px', fontSize: '11px', color: '#94a3b8', lineHeight: '1.4' }}>
+                  💡 <strong>Optimization Tip:</strong> Combine requests, use pagination, and leverage multiple projects to extend total available allowance.
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* YouTube Analytics Real-Time Stats Card */}
         {ytMetrics && (
           <div style={{ backgroundColor: '#1e293b', border: '1px solid #334155', padding: '24px', borderRadius: '12px', marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
@@ -790,6 +871,8 @@ export default function Home() {
                       style={{ width: '100%', padding: '10px', marginTop: '4px', backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '6px', color: '#f8fafc', fontSize: '13px' }}
                     >
                       <option value="VARCHAR(255)">VARCHAR(255)</option>
+                      <option value="NVARCHAR(255)">NVARCHAR(255) (Telugu Titles)</option>
+                      <option value="NCHAR(10)">NCHAR(10) (Telugu Codes)</option>
                       <option value="INTEGER">INTEGER</option>
                       <option value="BOOLEAN">BOOLEAN</option>
                       <option value="TIMESTAMP">TIMESTAMP</option>
