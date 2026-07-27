@@ -3,21 +3,94 @@
 -- Content schema
 CREATE SCHEMA IF NOT EXISTS content;
 
+CREATE TABLE IF NOT EXISTS content.ct_channels (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    channel_id VARCHAR(100) NOT NULL UNIQUE,
+    title VARCHAR(255) NOT NULL,
+    subscriber_count INT DEFAULT 0,
+    total_views BIGINT DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS content.ct_videos (
     id UUID PRIMARY KEY,
     tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
     youtube_id VARCHAR(50),
+    channel_id VARCHAR(100),
     title VARCHAR(255) NOT NULL,
     description TEXT,
     status VARCHAR(50) DEFAULT 'ideation',
+    views BIGINT DEFAULT 0,
+    likes INT DEFAULT 0,
+    comments_count INT DEFAULT 0,
+    duration VARCHAR(50),
+    published_at TIMESTAMP WITH TIME ZONE,
+    category VARCHAR(100),
+    tags TEXT[],
+    language VARCHAR(50) DEFAULT 'en',
+    thumbnail_url TEXT,
+    privacy_status VARCHAR(50) DEFAULT 'public',
+    transcript TEXT,
+    ctr FLOAT DEFAULT 0.0,
+    retention_percent FLOAT DEFAULT 0.0,
+    labels TEXT[],
+    notes TEXT,
+    is_favorite BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS content.ct_playlists (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    playlist_id VARCHAR(100) NOT NULL UNIQUE,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS content.ct_comments (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    video_id UUID NOT NULL,
+    author VARCHAR(255) NOT NULL,
+    text TEXT NOT NULL,
+    published_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS content.ct_captions (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    video_id UUID NOT NULL,
+    language VARCHAR(50) NOT NULL,
+    caption_text TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS content.ct_chapters (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    video_id UUID NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    start_time INT NOT NULL,
+    end_time INT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS content.ct_collections (
+    id UUID PRIMARY KEY,
+    tenant_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    video_ids UUID[],
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Seed content
-INSERT INTO content.ct_videos (id, title, description, status) VALUES
-('1a9bc245-c800-4752-bd88-0214a19bc32a', 'Rise and Fall of Ancient Rome', 'Exploring the history', 'published'),
-('28bc514d-91b3-4fec-88c9-021bc2498712', 'Secrets of Sparta Mythologies', 'Myth vs Reality', 'research')
+INSERT INTO content.ct_videos (id, title, description, status, views, duration, category, tags, language, published_at) VALUES
+('1a9bc245-c800-4752-bd88-0214a19bc32a', 'Rise and Fall of Ancient Rome', 'Exploring the history of Roman economics, expansion, and structural civil decay.', 'published', 124592, '42:15', 'History', ARRAY['Rome', 'Crisis', 'Economy'], 'en', '2026-04-12T00:00:00Z'),
+('28bc514d-91b3-4fec-88c9-021bc2498712', 'Secrets of Sparta Mythologies', 'Spartan military and cultural values contrasted with modern popular perception.', 'research', 89412, '31:40', 'History', ARRAY['Sparta', 'Greece', 'Culture'], 'en', '2026-05-02T00:00:00Z')
 ON CONFLICT (id) DO NOTHING;
 
 

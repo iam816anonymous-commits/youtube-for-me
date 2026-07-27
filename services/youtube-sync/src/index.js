@@ -270,9 +270,130 @@ app.post('/api/v1/youtube/channels', (req, res) => {
   });
 });
 
-// Retrieve list of dynamically linked and arranged videos
+// Memory registry tracking custom curated video collections
+let customCollections = [
+  { id: 'col-1', name: 'Best Tutorials', description: 'Premium tutorial walkthrough guides.', videoIds: ['chan-vid-1', 'chan-vid-2'] },
+  { id: 'col-2', name: 'AI Videos', description: 'Exploring machine learning models.', videoIds: ['chan-vid-4'] }
+];
+
+// Retrieve user-defined collections
+app.get('/api/v1/youtube/collections', (req, res) => {
+  sendResponse(res, 200, true, customCollections);
+});
+
+// Bulk Video Operations (assign tags, notes, favorite flags, etc.)
+app.post('/api/v1/youtube/bulk', (req, res) => {
+  const { videoIds, action, value } = req.body; // action: 'ADD_TAG' | 'ADD_NOTE' | 'TOGGLE_FAVORITE' | 'ASSIGN_LABEL'
+  if (!videoIds || !Array.isArray(videoIds) || !action) {
+    return sendResponse(res, 400, false, null, {}, [{ code: 'INVALID_PARAMETERS', message: 'videoIds array and action are required' }]);
+  }
+
+  let alteredCount = 0;
+  syncedVideos = syncedVideos.map(video => {
+    if (videoIds.includes(video.id)) {
+      alteredCount++;
+      const updated = { ...video };
+      if (action === 'ADD_TAG') {
+        const currentTags = updated.tags || [];
+        if (!currentTags.includes(value)) {
+          updated.tags = [...currentTags, value];
+        }
+      } else if (action === 'ADD_NOTE') {
+        updated.researchNotes = value;
+      } else if (action === 'TOGGLE_FAVORITE') {
+        updated.is_favorite = !!value;
+      } else if (action === 'ASSIGN_LABEL') {
+        const currentLabels = updated.labels || [];
+        if (!currentLabels.includes(value)) {
+          updated.labels = [...currentLabels, value];
+        }
+      }
+      return updated;
+    }
+    return video;
+  });
+
+  log('INFO', `Bulk operations completed on ${alteredCount} videos. Action: ${action}`, req.correlationId);
+  sendResponse(res, 200, true, { alteredCount, action, value });
+});
+
+// Create custom collections dynamically
+app.post('/api/v1/youtube/collections', (req, res) => {
+  const { name, description, videoIds } = req.body;
+  if (!name) {
+    return sendResponse(res, 400, false, null, {}, [{ code: 'INVALID_PARAMETERS', message: 'name is required' }]);
+  }
+
+  const newCollection = {
+    id: `col-${crypto.randomUUID().substring(0, 8)}`,
+    name: name.trim(),
+    description: (description || '').trim(),
+    videoIds: Array.isArray(videoIds) ? videoIds : []
+  };
+
+  customCollections.push(newCollection);
+  sendResponse(res, 201, true, newCollection);
+});
+
+// Retrieve list of dynamically linked and arranged videos with advanced search & filtering
 app.get('/api/v1/youtube/videos', (req, res) => {
-  sendResponse(res, 200, true, syncedVideos);
+  const { search, category, minViews, maxDuration, isFavorite, missingTags, missingDesc, limit } = req.query;
+
+  let filtered = [...syncedVideos];
+
+  // 1. Text Search Filter (Title, Description, Tags)
+  if (search) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter(v =>
+      v.title.toLowerCase().includes(q) ||
+      v.description.toLowerCase().includes(q) ||
+      (v.tags && v.tags.some(tag => tag.toLowerCase().includes(q)))
+    );
+  }
+
+  // 2. Category Filter
+  if (category && category !== 'All Topics') {
+    filtered = filtered.filter(v => v.category === category);
+  }
+
+  // 3. Views Threshold Filter (e.g. minViews: 100000)
+  if (minViews) {
+    const min = parseInt(minViews);
+    filtered = filtered.filter(v => {
+      const viewsVal = parseInt(String(v.views).replace(/,/g, '')) || 0;
+      return viewsVal >= min;
+    });
+  }
+
+  // 4. Duration Threshold Filter (e.g. maxDuration minutes)
+  if (maxDuration) {
+    const max = parseInt(maxDuration);
+    filtered = filtered.filter(v => {
+      const [m] = v.duration.split(':').map(Number);
+      return m <= max;
+    });
+  }
+
+  // 5. Favorites Filter
+  if (isFavorite === 'true') {
+    filtered = filtered.filter(v => v.is_favorite === true);
+  }
+
+  // 6. Missing Tags Filter
+  if (missingTags === 'true') {
+    filtered = filtered.filter(v => !v.tags || v.tags.length === 0);
+  }
+
+  // 7. Missing Description Filter
+  if (missingDesc === 'true') {
+    filtered = filtered.filter(v => !v.description || v.description.trim() === '');
+  }
+
+  if (limit) {
+    filtered = filtered.slice(0, parseInt(limit));
+  }
+
+  sendResponse(res, 200, true, filtered);
 });
 
 // Trigger YouTube Synchronizer
