@@ -407,6 +407,7 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
     return sendResponse(res, 429, false, null, {}, [{ code: 'QUOTA_EXCEEDED', message: quotaErr.message }]);
   }
 
+  const { channelId } = req.body || {};
   const userClientId = req.headers['x-google-client-id'] || globalGoogleClientId;
   const userClientSecret = req.headers['x-google-client-secret'] || globalGoogleClientSecret;
   const userAccessToken = req.headers['x-google-access-token'] || globalGoogleAccessToken;
@@ -421,15 +422,46 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
 
   if (!isProdCredentials) {
     log('INFO', 'Using simulated developmental YouTube analytics response...', req.correlationId);
+
+    const targetChannelId = channelId ? channelId.trim() : 'UC_mock_channel_01';
+    const targetTitle = channelId ? `Synced Channel ${targetChannelId.substring(0, 8)}` : 'Primary Historical Chronicles';
+
     const updatedMetrics = {
       sync_id: crypto.randomUUID(),
       tenant_id: DEFAULT_TENANT_ID,
-      channel_id: 'UC_mock_channel_01',
+      channel_id: targetChannelId,
       subscriber_count: lastSyncedMetrics.subscriber_count + Math.floor(Math.random() * 25),
       total_views: lastSyncedMetrics.total_views + Math.floor(Math.random() * 450),
       total_watch_time_minutes: lastSyncedMetrics.total_watch_time_minutes + Math.floor(Math.random() * 320),
       last_synced_at: new Date().toISOString()
     };
+
+    // Auto-register connected channel list if missing
+    const exists = connectedChannels.some(c => c.channelId === targetChannelId);
+    if (!exists) {
+      connectedChannels.push({
+        id: `chan-${crypto.randomUUID().substring(0, 8)}`,
+        channelId: targetChannelId,
+        title: targetTitle,
+        syncedCount: 2
+      });
+
+      // Inject dynamically synced mock video chronicles immediately so they surface inside the React dashboard view list
+      syncedVideos.push({
+        id: `chan-vid-${crypto.randomUUID().substring(0, 8)}`,
+        channelId: targetChannelId,
+        youtubeId: 'dQw4w9WgXcQ',
+        title: `[${targetTitle}] - Dynamic Architectural Foundations`,
+        description: 'Successfully fetched and arranged via target custom channel parameters.',
+        category: 'Ancient Architecture',
+        tags: ['Architecture', 'Dynamic-Sync'],
+        duration: '18:40',
+        views: '15,200',
+        publishedAt: new Date().toISOString().split('T')[0],
+        linkedBookIds: ['101'],
+        researchNotes: 'Dynamic pipeline confirmation: fetched directly via custom sync triggers.'
+      });
+    }
 
     try {
       const queryStr = 'INSERT INTO analytics.an_channel_snapshots (id, tenant_id, subscriber_count, total_views, total_watch_time_minutes, recorded_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *';
@@ -473,27 +505,77 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
       auth: customOauth2Client
     });
 
-    const channelRes = await youtube.channels.list({
-      part: 'snippet,statistics,contentDetails',
-      mine: true
-    });
+    // 1. Fetch channel details (by id if supplied, fallback to mine)
+    let channelQuery = {};
+    if (channelId && channelId.trim() !== '') {
+      channelQuery = { id: channelId.trim(), part: 'snippet,statistics,contentDetails' };
+    } else {
+      channelQuery = { mine: true, part: 'snippet,statistics,contentDetails' };
+    }
+
+    log('INFO', `Executing channels.list with query parameters: ${JSON.stringify(channelQuery)}`, req.correlationId);
+    const channelRes = await youtube.channels.list(channelQuery);
+
+    if (!channelRes.data.items || channelRes.data.items.length === 0) {
+      throw new Error(`No matching channel found on YouTube Data API for: ${JSON.stringify(channelQuery)}`);
+    }
 
     const channelItem = channelRes.data.items[0];
-    const uploadPlaylistId = channelItem.contentDetails.relatedPlaylists.uploads;
+    const uploadPlaylistId = channelItem.contentDetails?.relatedPlaylists?.uploads;
+    const channelTitle = channelItem.snippet?.title || 'Connected Channel';
 
-    const playlistItemsRes = await youtube.playlistItems.list({
-      part: 'snippet',
-      playlistId: uploadPlaylistId,
-      maxResults: 10
+    // 2. Fetch PlaylistItems uploads
+    let playlistItems = [];
+    if (uploadPlaylistId) {
+      log('INFO', `Fetching upload playlist: ${uploadPlaylistId}`, req.correlationId);
+      const playlistItemsRes = await youtube.playlistItems.list({
+        part: 'snippet,contentDetails',
+        playlistId: uploadPlaylistId,
+        maxResults: 15
+      });
+      playlistItems = playlistItemsRes.data.items || [];
+    }
+
+    // 3. Register Channel & Sync Videos dynamically into active runtime memories
+    const exists = connectedChannels.some(c => c.channelId === channelItem.id);
+    if (!exists) {
+      connectedChannels.push({
+        id: `chan-${crypto.randomUUID().substring(0, 8)}`,
+        channelId: channelItem.id,
+        title: channelTitle,
+        syncedCount: playlistItems.length
+      });
+    }
+
+    // Map playlist items to local schemas
+    playlistItems.forEach(item => {
+      const ytId = item.snippet?.resourceId?.videoId;
+      const alreadySynced = syncedVideos.some(v => v.youtubeId === ytId);
+      if (ytId && !alreadySynced) {
+        syncedVideos.push({
+          id: `chan-vid-${crypto.randomUUID().substring(0, 8)}`,
+          channelId: channelItem.id,
+          youtubeId: ytId,
+          title: item.snippet?.title || 'Untitled Sync',
+          description: item.snippet?.description || '',
+          category: 'Unclassified',
+          tags: [],
+          duration: '10:00',
+          views: '0',
+          publishedAt: item.snippet?.publishedAt ? item.snippet.publishedAt.split('T')[0] : new Date().toISOString().split('T')[0],
+          linkedBookIds: [],
+          researchNotes: 'Synchronized live via YouTube Data API channels integration.'
+        });
+      }
     });
 
     const syncedMetrics = {
       sync_id: crypto.randomUUID(),
       tenant_id: DEFAULT_TENANT_ID,
       channel_id: channelItem.id,
-      subscriber_count: parseInt(channelItem.statistics.subscriberCount),
-      total_views: parseInt(channelItem.statistics.viewCount),
-      total_watch_time_minutes: parseInt(channelItem.statistics.videoCount) * 12,
+      subscriber_count: parseInt(channelItem.statistics?.subscriberCount || '0'),
+      total_views: parseInt(channelItem.statistics?.viewCount || '0'),
+      total_watch_time_minutes: parseInt(channelItem.statistics?.videoCount || '0') * 12,
       last_synced_at: new Date().toISOString()
     };
 
@@ -502,9 +584,9 @@ app.post('/api/v1/youtube/sync', async (req, res) => {
     sendResponse(res, 200, true, {
       status: 'success',
       mode: 'PRODUCTION',
-      message: 'Official Google APIs synchronized successfully using dynamic credentials.',
+      message: `Official Google APIs synchronized channel "${channelTitle}" successfully using dynamic credentials.`,
       metrics: syncedMetrics,
-      google_raw_data_playlist_count: playlistItemsRes.data.items.length
+      google_raw_data_playlist_count: playlistItems.length
     });
 
   } catch (error) {
